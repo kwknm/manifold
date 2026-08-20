@@ -1,0 +1,18 @@
+﻿syntax = "proto3";
+
+option csharp_namespace = "Storage.Grpc";
+
+service Files {
+  rpc UploadBook (stream FileChunk) returns (UploadResponse);
+}
+
+message FileChunk {
+  string file_name = 1;
+  string content_type = 2;
+  int64 total_size = 3;
+  bytes data = 4;
+}
+
+message UploadResponse {
+  string file_id = 1;
+}

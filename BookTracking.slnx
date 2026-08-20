@@ -1,0 +1,9 @@
+<Solution>
+  <Project Path="Auth.Api/Auth.Api.csproj" />
+  <Project Path="BookTracking.AppHost/BookTracking.AppHost.csproj" />
+  <Project Path="BookTracking.ServiceDefaults/BookTracking.ServiceDefaults.csproj" />
+  <Project Path="Catalog.Api/Catalog.Api.csproj" />
+  <Project Path="Shared.Protos/Shared.Protos.csproj" />
+  <Project Path="Shared/Shared.csproj" />
+  <Project Path="Storage.Grpc/Storage.Grpc.csproj" />
+</Solution>

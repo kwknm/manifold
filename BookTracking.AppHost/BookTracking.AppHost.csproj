@@ -10,6 +10,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Auth.Api\Auth.Api.csproj" />
+        <ProjectReference Include="..\BookMetadata.Grpc\BookMetadata.Grpc.csproj" />
         <ProjectReference Include="..\Catalog.Api\Catalog.Api.csproj" />
         <ProjectReference Include="..\Storage.Grpc\Storage.Grpc.csproj" />
     </ItemGroup>

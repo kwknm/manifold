@@ -1,4 +1,6 @@
-namespace Catalog.Api.Clients;
+using Microsoft.AspNetCore.Http;
+
+namespace Shared.Clients;
 
 public interface IFilesClient
 {

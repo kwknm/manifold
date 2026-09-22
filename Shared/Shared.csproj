@@ -12,8 +12,14 @@
 
     <ItemGroup>
       <PackageReference Include="ErrorOr" />
+      <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
       <PackageReference Include="Microsoft.EntityFrameworkCore" />
       <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+      <PackageReference Include="Grpc.Net.ClientFactory" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Shared.Protos\Shared.Protos.csproj" />
     </ItemGroup>
 
 </Project>

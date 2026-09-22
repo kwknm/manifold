@@ -1,9 +1,10 @@
 ﻿syntax = "proto3";
 
-option csharp_namespace = "Storage.Grpc";
+option csharp_namespace = "Shared.Protos";
 
 service Files {
   rpc UploadBook (stream FileChunk) returns (UploadResponse);
+  rpc UploadCover (stream FileChunk) returns (UploadResponse);
 }
 
 message FileChunk {

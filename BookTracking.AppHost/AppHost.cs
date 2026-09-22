@@ -25,11 +25,17 @@ var storageService = builder.AddProject<Projects.Storage_Grpc>("storage")
     .WithReference(minio)
     .WaitFor(minio);
 
+var bookMetadataService = builder.AddProject<Projects.BookMetadata_Grpc>("bookmetadata")
+    .WithReference(storageService)
+    .WaitFor(storageService);
+
 var catalogService = builder.AddProject<Projects.Catalog_Api>("catalog")
     .WithReference(catalogDb)
     .WaitFor(catalogDb)
     .WithReference(storageService)
     .WaitFor(storageService)
+    .WithReference(bookMetadataService)
+    .WaitFor(bookMetadataService)
     .WithHttpHealthCheck("/health")
     .WithExternalHttpEndpoints();
 

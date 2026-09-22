@@ -1,5 +1,8 @@
 <Solution>
   <Project Path="Auth.Api/Auth.Api.csproj" />
+  <Project Path="BookMetadata.Grpc/BookMetadata.Grpc.csproj" />
+  <Project Path="BookMetadata.Parsers/BookMetadata.Parsers.csproj" />
+  <Project Path="BookMetadata.Tests.Unit/BookMetadata.Tests.Unit.csproj" />
   <Project Path="BookTracking.AppHost/BookTracking.AppHost.csproj" />
   <Project Path="BookTracking.ServiceDefaults/BookTracking.ServiceDefaults.csproj" />
   <Project Path="Catalog.Api/Catalog.Api.csproj" />

@@ -9,8 +9,10 @@ public interface ICatalogService
         string title, 
         string? author, 
         string? isbn, 
-        List<string> tags,
+        List<Guid> tagIds,
         Guid fileId,
+        Guid? coverFileId,
+        int pageCount,
         Guid userId,
         CancellationToken cancellationToken = default);
 }

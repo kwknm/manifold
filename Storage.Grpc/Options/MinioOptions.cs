@@ -8,5 +8,6 @@ public sealed class MinioOptions
     public string SecretKey { get; set; } = "minioadmin";
     public bool Secure { get; set; }
     public string BucketName { get; set; } = "files";
+    public string CoversBucketName { get; set; } = "covers";
     public int PresignedUrlExpirySeconds { get; set; } = 600;
 }

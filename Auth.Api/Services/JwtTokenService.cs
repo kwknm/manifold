@@ -3,9 +3,9 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Auth.Api.Database.Entities;
-using Auth.Api.Options;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Shared.Options;
 
 namespace Auth.Api.Services;
 

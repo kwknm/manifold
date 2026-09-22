@@ -1,6 +1,6 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
-namespace Auth.Api.Options;
+namespace Shared.Options;
 
 public sealed class JwtOptions
 {

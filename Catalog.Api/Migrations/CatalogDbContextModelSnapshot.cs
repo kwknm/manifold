@@ -22,6 +22,21 @@ namespace Catalog.Api.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("BookTag", b =>
+                {
+                    b.Property<Guid>("BooksId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TagsId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("BooksId", "TagsId");
+
+                    b.HasIndex("TagsId");
+
+                    b.ToTable("BookTag");
+                });
+
             modelBuilder.Entity("Catalog.Api.Database.Entities.Book", b =>
                 {
                     b.Property<Guid>("Id")
@@ -29,12 +44,16 @@ namespace Catalog.Api.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<string>("Author")
-                        .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<Guid?>("CoverFileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("FileId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Isbn")
-                        .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
@@ -45,6 +64,9 @@ namespace Catalog.Api.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
 
                     b.HasKey("Id");
 
@@ -57,35 +79,37 @@ namespace Catalog.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("BookId")
-                        .HasColumnType("uuid");
+                    b.Property<string>("ColorHex")
+                        .IsRequired()
+                        .HasMaxLength(7)
+                        .HasColumnType("character varying(7)");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("BookId");
-
-                    b.ToTable("Tag");
+                    b.ToTable("Tags");
                 });
 
-            modelBuilder.Entity("Catalog.Api.Database.Entities.Tag", b =>
+            modelBuilder.Entity("BookTag", b =>
                 {
-                    b.HasOne("Catalog.Api.Database.Entities.Book", "Book")
-                        .WithMany("Tags")
-                        .HasForeignKey("BookId")
+                    b.HasOne("Catalog.Api.Database.Entities.Book", null)
+                        .WithMany()
+                        .HasForeignKey("BooksId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("Book");
-                });
-
-            modelBuilder.Entity("Catalog.Api.Database.Entities.Book", b =>
-                {
-                    b.Navigation("Tags");
+                    b.HasOne("Catalog.Api.Database.Entities.Tag", null)
+                        .WithMany()
+                        .HasForeignKey("TagsId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

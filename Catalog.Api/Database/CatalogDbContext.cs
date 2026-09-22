@@ -6,6 +6,7 @@ namespace Catalog.Api.Database;
 public class CatalogDbContext(DbContextOptions<CatalogDbContext> options) : DbContext(options)
 {
     public DbSet<Book> Books => Set<Book>();
+    public DbSet<Tag> Tags => Set<Tag>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

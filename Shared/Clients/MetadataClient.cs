@@ -1,23 +1,28 @@
-using Storage.Grpc;
+using Shared.Protos;
+using Microsoft.AspNetCore.Http;
 
-namespace Catalog.Api.Clients;
-// TODO: Move to Shared
+namespace Shared.Clients;
 
-public class FilesClient(Storage.Grpc.Files.FilesClient client) : IFilesClient
+public class MetadataClient(Shared.Protos.Metadata.MetadataClient client) : IMetadataClient
 {
-    public async Task<Guid> UploadBookAsync(IFormFile file, CancellationToken ct = default)
+    public async Task<MetadataResponse> FetchBookMetadataAsync(IFormFile file, CancellationToken ct = default)
     {
         const int bufferSize = 32 * 1024;
 
-        using var call = client.UploadBook(cancellationToken: ct);
+        using var call = client.FetchBookMetadata(cancellationToken: ct);
         await using var stream = file.OpenReadStream();
 
         var buffer = new byte[bufferSize];
-        int read;
         var first = true;
 
-        while ((read = await stream.ReadAsync(buffer, ct)) > 0)
+        while (true)
         {
+            var read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct);
+            if (read == 0)
+            {
+                break;
+            }
+
             var chunk = new FileChunk
             {
                 Data = Google.Protobuf.ByteString.CopyFrom(buffer, 0, read)
@@ -35,7 +40,6 @@ public class FilesClient(Storage.Grpc.Files.FilesClient client) : IFilesClient
         }
 
         await call.RequestStream.CompleteAsync();
-        var response = await call.ResponseAsync;
-        return new Guid(response.FileId);
+        return await call.ResponseAsync;
     }
 }

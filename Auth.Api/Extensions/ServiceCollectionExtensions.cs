@@ -1,11 +1,9 @@
-using System.Text;
 using Auth.Api.Database;
 using Auth.Api.Options;
 using Auth.Api.Services;
 using Carter;
 using FluentValidation;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
+using Shared.Extensions;
 
 namespace Auth.Api.Extensions;
 
@@ -17,7 +15,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddOpenApi();
         builder.Services.AddCarter();
 
-        builder.Services.RegisterOptions();
+        builder.Services.RegisterJwtOptions();
         builder.Services.AddJwtAuthentication(builder.Configuration);
         builder.Services.AddAuthorization();
 
@@ -30,44 +28,5 @@ public static class ServiceCollectionExtensions
         builder.AddNpgsqlDbContext<AuthDbContext>(connectionName: "users-db");
 
         return builder;
-    }
-
-    // TODO: move to Shared
-    extension(IServiceCollection services)
-    {
-        private IServiceCollection RegisterOptions()
-        {
-            services
-                .AddOptions<JwtOptions>()
-                .BindConfiguration(JwtOptions.SectionName)
-                .ValidateDataAnnotations()
-                .ValidateOnStart();
-
-            return services;
-        }
-
-        private IServiceCollection AddJwtAuthentication(IConfiguration configuration)
-        {
-            var jwtOptions = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()!;
-
-            services
-                .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-                .AddJwtBearer(options =>
-                {
-                    options.TokenValidationParameters = new TokenValidationParameters
-                    {
-                        ValidateIssuer = true,
-                        ValidateAudience = true,
-                        ValidateLifetime = true,
-                        ValidateIssuerSigningKey = true,
-                        ValidIssuer = jwtOptions.Issuer,
-                        ValidAudience = jwtOptions.Audience,
-                        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.SecretKey)),
-                        ClockSkew = TimeSpan.FromSeconds(30)
-                    };
-                });
-
-            return services;
-        }
     }
 }

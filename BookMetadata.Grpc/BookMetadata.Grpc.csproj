@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Grpc.AspNetCore"/>
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\BookMetadata.Parsers\BookMetadata.Parsers.csproj" />
+      <ProjectReference Include="..\Shared.Protos\Shared.Protos.csproj" />
+      <ProjectReference Include="..\Shared\Shared.csproj" />
+      <ProjectReference Include="..\BookTracking.ServiceDefaults\BookTracking.ServiceDefaults.csproj" />
+    </ItemGroup>
+
+</Project>

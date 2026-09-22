@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Minio;
 using Minio.DataModel.Args;
+using Shared.Protos;
 using Storage.Grpc.Database;
 using Storage.Grpc.Database.Entities;
 using Storage.Grpc.Options;
@@ -17,14 +18,26 @@ public sealed class StorageService(
 {
     private readonly MinioOptions _options = options.Value;
 
-    public override async Task<UploadResponse> UploadBook(IAsyncStreamReader<FileChunk> request,
+    public override Task<UploadResponse> UploadBook(IAsyncStreamReader<FileChunk> request,
+        ServerCallContext callContext)
+    {
+        return UploadAsync(request, _options.BucketName, callContext);
+    }
+
+    public override Task<UploadResponse> UploadCover(IAsyncStreamReader<FileChunk> request,
+        ServerCallContext callContext)
+    {
+        return UploadAsync(request, _options.CoversBucketName, callContext);
+    }
+
+    private async Task<UploadResponse> UploadAsync(IAsyncStreamReader<FileChunk> request, string bucketName,
         ServerCallContext callContext)
     {
         var objectName = $"{Guid.CreateVersion7():N}";
 
         try
         {
-            await EnsureBucketExistsAsync(callContext.CancellationToken);
+            await EnsureBucketExistsAsync(bucketName, callContext.CancellationToken);
 
             string? fileName = null;
             string? contentType = null;
@@ -47,7 +60,7 @@ public sealed class StorageService(
             fileName ??= "Unknown";
 
             await minioClient.PutObjectAsync(new PutObjectArgs()
-                .WithBucket(_options.BucketName)
+                .WithBucket(bucketName)
                 .WithObject(objectName)
                 .WithStreamData(ms)
                 .WithObjectSize(ms.Length)
@@ -55,7 +68,7 @@ public sealed class StorageService(
 
             var storageFile = new StorageFile
             {
-                BucketName = _options.BucketName,
+                BucketName = bucketName,
                 ContentType = contentType,
                 ObjectName = objectName,
                 OriginalFileName = TruncateFileName(fileName),
@@ -75,7 +88,7 @@ public sealed class StorageService(
             logger.LogError(ex, "Failed to upload file (DB exception).");
 
             await minioClient.RemoveObjectAsync(new RemoveObjectArgs()
-                .WithBucket(_options.BucketName)
+                .WithBucket(bucketName)
                 .WithObject(objectName));
 
             throw new RpcException(new Status(
@@ -92,10 +105,10 @@ public sealed class StorageService(
         }
     }
 
-    private async Task EnsureBucketExistsAsync(CancellationToken ct)
+    private async Task EnsureBucketExistsAsync(string bucketName, CancellationToken ct)
     {
         var bucketExists = await minioClient.BucketExistsAsync(
-            new BucketExistsArgs().WithBucket(_options.BucketName),
+            new BucketExistsArgs().WithBucket(bucketName),
             ct);
 
         if (bucketExists)
@@ -104,7 +117,7 @@ public sealed class StorageService(
         }
 
         await minioClient.MakeBucketAsync(
-            new MakeBucketArgs().WithBucket(_options.BucketName),
+            new MakeBucketArgs().WithBucket(bucketName),
             ct);
     }
 

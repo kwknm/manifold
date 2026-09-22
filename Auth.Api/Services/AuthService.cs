@@ -2,10 +2,10 @@ using Auth.Api.Contracts;
 using Auth.Api.Database;
 using Auth.Api.Database.Entities;
 using Auth.Api.Errors;
-using Auth.Api.Options;
 using ErrorOr;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Shared.Options;
 
 namespace Auth.Api.Services;
 

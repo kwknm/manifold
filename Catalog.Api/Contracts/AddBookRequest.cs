@@ -5,4 +5,4 @@ public sealed record AddBookRequest(
     string? Author,
     string? Isbn,
     IFormFile File,
-    List<string> Tags);
+    List<Guid> TagIds);

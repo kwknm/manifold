@@ -10,8 +10,8 @@ public static class ServiceCollectionExtensions
     {
         public IServiceCollection RegisterOptions()
         {
-            services.AddOptions<MinioOptions>()
-                .BindConfiguration(MinioOptions.SectionName)
+            services.AddOptions<SeaweedOptions>()
+                .BindConfiguration(SeaweedOptions.SectionName)
                 .ValidateDataAnnotations()
                 .ValidateOnStart();
 
@@ -38,9 +38,9 @@ public static class ServiceCollectionExtensions
             return builder;
         }
 
-        public WebApplicationBuilder AddMinioClient()
+        public WebApplicationBuilder AddSeaweedFsClient()
         {
-            builder.AddMinioClient("minio");
+            builder.AddSeaweedFSS3Client("seaweedfs");
 
             return builder;
         }

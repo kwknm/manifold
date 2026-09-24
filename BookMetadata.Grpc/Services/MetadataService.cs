@@ -1,11 +1,15 @@
 ﻿using BookMetadata.Parsers;
 using ErrorOr;
+using Google.Protobuf.Collections;
 using Grpc.Core;
 using Shared;
 using ContentType = Shared.ContentType;
 using Metadata = Shared.Protos.Metadata;
-using FileChunk = Shared.Protos.FileChunk;
 using Files = Shared.Protos.Files;
+using MetadataRequest = Shared.Protos.MetadataRequest;
+using MetadataResponse = Shared.Protos.MetadataResponse;
+using DownloadRequest = Shared.Protos.DownloadRequest;
+using FileChunk = Shared.Protos.FileChunk;
 using BookMetadataModel = BookMetadata.Parsers.BookMetadata;
 
 namespace BookMetadata.Grpc.Services;
@@ -15,44 +19,29 @@ public class MetadataService(ILogger<MetadataService> logger, Files.FilesClient 
     private readonly List<string> _allowedEbookFormats =
         [ContentType.PDF.ToValue(), ContentType.EPUB.ToValue(), ContentType.FB2.ToValue()];
 
-    public override async Task<Shared.Protos.MetadataResponse> FetchBookMetadata(
-        IAsyncStreamReader<FileChunk> request, ServerCallContext context)
+    public override async Task<MetadataResponse> FetchBookMetadata(
+        MetadataRequest request, ServerCallContext context)
     {
-        var fileName = string.Empty;
-        var contentType = ContentType.DEFAULT.ToValue();
-        
-        using var ms = new MemoryStream();
-        
-        await foreach (var chunk in request.ReadAllAsync())
+        if (!Guid.TryParse(request.FileId, out var fileId))
         {
-            if (!string.IsNullOrWhiteSpace(chunk.FileName) && fileName == string.Empty)
-            {
-                fileName = chunk.FileName;
-            }
-
-            if (!string.IsNullOrWhiteSpace(chunk.ContentType) && contentType == ContentType.DEFAULT.ToValue())
-            {
-                contentType = chunk.ContentType;
-            }
-            
-            if (!IsAllowedFormat(contentType))
-            {
-                logger.LogWarning("Unsupported file format: {ContentType}", contentType);
-                throw new RpcException(new Status(StatusCode.InvalidArgument, $"Unsupported file format: {contentType}"));
-            }
-
-            if (chunk.Data is not null)
-            {
-                await ms.WriteAsync(chunk.Data.Memory, context.CancellationToken);
-            }
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid file id."));
         }
 
-        ms.Position = 0;
+        var fileName = request.FileName;
+        var contentType = request.ContentType;
+
+        if (!IsAllowedFormat(contentType))
+        {
+            logger.LogWarning("Unsupported file format: {ContentType}", contentType);
+            throw new RpcException(new Status(StatusCode.InvalidArgument, $"Unsupported file format: {contentType}"));
+        }
+
+        await using var stream = await DownloadBookAsync(fileId, context.CancellationToken);
 
         try
         {
-            var parser = new Parsers.BookParser();
-            var result = parser.Parse(fileName ?? string.Empty, ms);
+            var parser = new BookParser();
+            var result = parser.Parse(fileName ?? string.Empty, stream);
 
             if (result.IsError)
             {
@@ -64,11 +53,11 @@ public class MetadataService(ILogger<MetadataService> logger, Files.FilesClient 
             var metadata = result.Value;
 
             var coverFileId = await UploadCoverAsync(metadata, context.CancellationToken);
-
-            var response = new Shared.Protos.MetadataResponse
+            
+            var response = new MetadataResponse
             {
                 Title = metadata.Title,
-                Author = metadata.Author,
+                Authors = { metadata.Authors },
                 Isbn = metadata.Isbn,
                 PageCount = metadata.PageCount,
                 CoverFileId = coverFileId
@@ -90,6 +79,24 @@ public class MetadataService(ILogger<MetadataService> logger, Files.FilesClient 
     private bool IsAllowedFormat(string contentType)
     {
         return _allowedEbookFormats.Contains(contentType);
+    }
+
+    private async Task<MemoryStream> DownloadBookAsync(Guid fileId, CancellationToken ct)
+    {
+        using var call = filesClient.DownloadFile(new DownloadRequest { FileId = fileId.ToString() }, cancellationToken: ct);
+
+        var ms = new MemoryStream();
+
+        await foreach (var chunk in call.ResponseStream.ReadAllAsync(ct))
+        {
+            if (chunk.Data is not null)
+            {
+                await ms.WriteAsync(chunk.Data.Memory, ct);
+            }
+        }
+
+        ms.Position = 0;
+        return ms;
     }
 
     private async Task<string> UploadCoverAsync(BookMetadataModel metadata, CancellationToken ct)

@@ -65,8 +65,8 @@ Manifold — бэкенд-решение, построенное по микро
 
 ### BookMetadata.Grpc (gRPC)
 Извлечение метаданных из загруженных книг:
-- Принимает файл потоком (`stream FileChunk`)
-- Определяет формат и парсит метаданные (EPUB, FB2, PDF)
+- Принимает `file_id` (без повторной пересылки файла через сеть)
+- Скачивает файл из Storage.Grpc (`DownloadFile`) и парсит метаданные (EPUB, FB2, PDF)
 - Возвращает заголовок, автора, ISBN, количество страниц и обложку
 - Обложка: EPUB/FB2 — извлекается из файла, при отсутствии генерируется плейсхолдер (SkiaSharp);
   PDF — рендер первой страницы (PDFtoImage/PDFium). Обложка загружается в Storage.Grpc (бакет `covers`) и возвращается как `cover_file_id`
@@ -74,6 +74,7 @@ Manifold — бэкенд-решение, построенное по микро
 ### Storage.Grpc (gRPC)
 Хранение файлов в MinIO:
 - Потоковая загрузка файлов книги (бакет `books`) и обложек (`UploadCover`, бакет `covers`)
+- Потоковое скачивание файла книги (`DownloadFile`) для BookMetadata, удаление файла (`DeleteFile`)
 - Запись метаданных файла (bucket, object name, content type, размер) в PostgreSQL
 
 ### BookTracking.AppHost
@@ -102,8 +103,8 @@ Aspire-оркестратор: PostgreSQL (3 базы), MinIO, gateway, все �
 
 ## gRPC-контракты (`Shared.Protos`)
 
-- `files.proto` — сервис `Files.UploadBook` (потоковая загрузка файла)
-- `metadata.proto` — сервис `Metadata.FetchBookMetadata` (извлечение метаданных)
+- `files.proto` — сервис `Files.UploadBook`/`UploadCover` (потоковая загрузка), `DownloadFile` (потоковое скачивание), `DeleteFile`
+- `metadata.proto` — сервис `Metadata.FetchBookMetadata` (извлечение метаданных по `file_id`)
 
 ## Структура репозитория
 

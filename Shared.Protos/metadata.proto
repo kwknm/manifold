@@ -1,17 +1,21 @@
 ﻿syntax = "proto3";
 
-import "files.proto";
-
 option csharp_namespace = "Shared.Protos";
 
 service Metadata {
-  rpc FetchBookMetadata (stream FileChunk) returns (MetadataResponse);
+  rpc FetchBookMetadata (MetadataRequest) returns (MetadataResponse);
+}
+
+message MetadataRequest {
+  string file_id = 1;
+  string file_name = 2;
+  string content_type = 3;
 }
 
 message MetadataResponse {
-  string title = 1;
-  string author = 2;
-  string isbn = 3;
-  int32 page_count = 4;
-  string cover_file_id = 5;
+  optional string title = 1;
+  repeated string authors = 2;
+  optional string isbn = 3;
+  optional int32 page_count = 4;
+  optional string cover_file_id = 5;
 }

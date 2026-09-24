@@ -1,5 +1,4 @@
-﻿using System.Net.Mime;
-using Grpc.Core;
+﻿using Grpc.Core;
 
 namespace Catalog.Api.Extensions;
 

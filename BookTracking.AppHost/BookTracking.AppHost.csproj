@@ -19,6 +19,6 @@
         <PackageReference Include="Aspire.Hosting.JavaScript" />
         <PackageReference Include="Aspire.Hosting.PostgreSQL" />
         <PackageReference Include="Aspire.Hosting.Yarp" />
-        <PackageReference Include="CommunityToolkit.Aspire.Hosting.Minio" />
+        <PackageReference Include="CommunityToolkit.Aspire.Hosting.SeaweedFS" />
     </ItemGroup>
 </Project>

@@ -16,7 +16,7 @@ public class AddBookRequestValidator : AbstractValidator<AddBookRequest>
     public AddBookRequestValidator()
     {
         RuleFor(x => x.Title)
-            .NotEmpty().WithMessage("Title is required")
+            .NotNull().NotEmpty().WithMessage("Title is required")
             .MaximumLength(200).WithMessage("Title must not exceed 200 characters");
 
         RuleFor(x => x.Author)
@@ -24,7 +24,7 @@ public class AddBookRequestValidator : AbstractValidator<AddBookRequest>
 
         RuleFor(x => x.Isbn)
             .MaximumLength(20).WithMessage("ISBN must not exceed 20 characters")
-            .Matches(@"^[0-9-]*$").WithMessage("ISBN must contain only numbers and hyphens");
+            .Matches("^[0-9-]*$").WithMessage("ISBN must contain only numbers and hyphens");
 
         RuleFor(x => x.File)
             .NotNull().WithMessage("File is required");
@@ -35,7 +35,7 @@ public class AddBookRequestValidator : AbstractValidator<AddBookRequest>
 
         When(x => x.File is not null, () =>
         {
-            RuleFor(x => x.File!)
+            RuleFor(x => x.File)
                 .Must(file => file.Length > 0).WithMessage("File cannot be empty")
                 .Must(file => file.Length < MaxFileSizeInMb * 1024 * 1024)
                 .WithMessage($"File size must be less than {MaxFileSizeInMb}MB")

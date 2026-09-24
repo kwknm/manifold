@@ -5,7 +5,6 @@ public sealed record BookResponse(
     string Title,
     string? Author,
     string? Isbn,
-    int PageCount,
     Guid? CoverFileId,
     List<TagResponse> Tags,
     Guid UserId);

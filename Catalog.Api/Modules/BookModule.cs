@@ -1,6 +1,4 @@
 ﻿using Carter;
-using FluentValidation;
-using FluentValidation.Results;
 using Shared.Clients;
 using Catalog.Api.Contracts;
 using Catalog.Api.Extensions;
@@ -19,37 +17,24 @@ public class BookModule : ICarterModule
         var group = app.MapGroup("/books")
             .RequireAuthorization();
 
-        group.MapPost("/", HandleAddBookAsync)
+        group.MapPost<AddBookRequest>("/", HandleAddBookAsync)
             .DisableAntiforgery();
     }
 
     private async Task<IResult> HandleAddBookAsync(
-        [FromForm] string? Title,
-        [FromForm] string? Author,
-        [FromForm] string? Isbn,
-        [FromForm] List<Guid>? TagIds,
-        IFormFile? File,
+        [FromForm] AddBookRequest request,
         ICatalogService service,
         HttpContext httpContext,
         IFilesClient filesClient,
         IMetadataClient metadataClient,
-        IValidator<AddBookRequest> validator,
         CancellationToken ct)
     {
-        var request = new AddBookRequest(Title, Author, Isbn, File, TagIds);
-
-        ValidationResult validation = await validator.ValidateAsync(request, ct);
-        if (!validation.IsValid)
-        {
-            return Results.ValidationProblem(validation.ToDictionary());
-        }
-
         var userId = httpContext.User.GetUserId();
 
         Guid fileId;
         try
         {
-            fileId = await filesClient.UploadBookAsync(request.File!, ct);
+            fileId = await filesClient.UploadBookAsync(request.File, ct);
         }
         catch (RpcException ex)
         {
@@ -59,7 +44,7 @@ public class BookModule : ICarterModule
         MetadataResponse metadata;
         try
         {
-            metadata = await metadataClient.FetchBookMetadataAsync(request.File!, ct);
+            metadata = await metadataClient.FetchBookMetadataAsync(request.File, ct);
         }
         catch (RpcException ex)
         {
@@ -70,15 +55,14 @@ public class BookModule : ICarterModule
         var author = string.IsNullOrWhiteSpace(metadata.Author) ? request.Author : metadata.Author;
         var isbn = string.IsNullOrWhiteSpace(metadata.Isbn) ? request.Isbn : metadata.Isbn;
         Guid.TryParse(metadata.CoverFileId, out var coverFileId);
-
+        
         var result = await service.AddBookAsync(
             title,
             author,
             isbn,
-            request.TagIds ?? [],
+            request.TagIds,
             fileId,
             coverFileId,
-            metadata.PageCount,
             userId,
             ct);
 

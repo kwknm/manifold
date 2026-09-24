@@ -11,7 +11,7 @@ public class CatalogService(ILogger<CatalogService> logger, CatalogDbContext con
     : ICatalogService
 {
     public async Task<ErrorOr<BookResponse>> AddBookAsync(string title, string? author, string? isbn, List<Guid> tagIds,
-        Guid fileId, Guid? coverFileId, int pageCount, Guid userId,
+        Guid fileId, Guid? coverFileId, Guid userId,
         CancellationToken ct = default)
     {
         var fetchedTags = await tagService.GetTagsAsync(tagIds, ct);
@@ -23,7 +23,6 @@ public class CatalogService(ILogger<CatalogService> logger, CatalogDbContext con
             Isbn = isbn,
             FileId = fileId,
             CoverFileId = coverFileId,
-            PageCount = pageCount,
             UserId = userId,
             Tags = fetchedTags
         };
@@ -33,7 +32,7 @@ public class CatalogService(ILogger<CatalogService> logger, CatalogDbContext con
             await context.Books.AddAsync(book, ct);
             await context.SaveChangesAsync(ct);
 
-            return new BookResponse(book.Id, book.Title, book.Author, book.Isbn, book.PageCount,
+            return new BookResponse(book.Id, book.Title, book.Author, book.Isbn,
                 book.CoverFileId,
                 book.Tags.Select(t => new TagResponse(t)).ToList(),
                 book.UserId);

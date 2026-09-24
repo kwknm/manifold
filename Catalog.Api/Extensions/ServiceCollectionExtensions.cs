@@ -1,7 +1,6 @@
 ﻿using Carter;
 using FluentValidation;
 using Shared.Clients;
-using Catalog.Api.Contracts;
 using Catalog.Api.Database;
 using Catalog.Api.Services;
 using Shared.Extensions;
@@ -17,7 +16,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddOpenApi();
         builder.Services.AddCarter();
 
-        builder.Services.AddValidatorsFromAssemblyContaining<AddBookRequest>();
+        builder.Services.AddValidatorsFromAssembly(typeof(ServiceCollectionExtensions).Assembly);
 
         builder.Services.RegisterJwtOptions();
         builder.Services.AddJwtAuthentication(builder.Configuration);

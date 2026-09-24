@@ -12,7 +12,6 @@ public interface ICatalogService
         List<Guid> tagIds,
         Guid fileId,
         Guid? coverFileId,
-        int pageCount,
         Guid userId,
         CancellationToken cancellationToken = default);
 }

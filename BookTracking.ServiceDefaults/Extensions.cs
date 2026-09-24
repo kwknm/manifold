@@ -28,8 +28,12 @@ public static class Extensions
 
         builder.Services.ConfigureHttpClientDefaults(http =>
         {
-            // Turn on resilience by default
-            http.AddStandardResilienceHandler();
+            // The gRPC clients are the only HttpClients in the system. The Polly
+            // retry/circuit-breaker pipeline (AddStandardResilienceHandler) is not used here because
+            // it buffers/replays the request and hangs on gRPC streaming calls, which cannot be
+            // replayed anyway. Instead just give the calls a generous timeout for large (100MB+)
+            // streaming uploads/downloads.
+            http.ConfigureHttpClient(c => c.Timeout = TimeSpan.FromMinutes(10));
 
             // Turn on service discovery by default
             http.AddServiceDiscovery();

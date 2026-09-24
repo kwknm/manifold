@@ -6,8 +6,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddDatabase();
 builder.Services.AddGrpc();
-builder.Services.RegisterOptions();
-builder.AddMinioClient();
+builder.AddSeaweedFsClient();
 
 var app = builder.Build();
 

@@ -57,8 +57,9 @@ Manifold is a backend for an e-book library built with a microservice architectu
 ### Book upload flow
 
 1. Client sends a multipart request to `POST /api/catalog/books`
-2. `Catalog.Api` streams the file to `Storage.Grpc` → MinIO bucket `books`
-3. `Catalog.Api` requests metadata from `BookMetadata.Grpc`:
+2. `Catalog.Api` streams the file to `Storage.Grpc` → MinIO bucket `books`, getting a `file_id` back
+3. `Catalog.Api` requests metadata from `BookMetadata.Grpc`, passing only `file_id` (the file itself is not re-transferred):
+   - `BookMetadata.Grpc` downloads the book from `Storage.Grpc` (`DownloadFile`)
    - the book is parsed, the cover is extracted (or generated as a placeholder)
    - the cover is uploaded to `Storage.Grpc` → MinIO bucket `covers`
    - `cover_file_id` is returned together with the rest of the metadata
@@ -76,7 +77,7 @@ Manifold is a backend for an e-book library built with a microservice architectu
 
 ## gRPC contracts (`Shared.Protos`)
 
-- `files.proto` — service `Files`: `UploadBook`, `UploadCover` (streaming upload)
+- `files.proto` — service `Files`: `UploadBook`, `UploadCover` (streaming upload), `DownloadFile` (streaming download), `DeleteFile`
 - `metadata.proto` — service `Metadata`: `FetchBookMetadata` (metadata + cover extraction)
 
 ## Getting started
@@ -106,7 +107,7 @@ curl -X POST http://localhost:3000/api/catalog/books \
   -F "File=@book.epub;type=application/epub+zip"
 ```
 
-`Title` and `File` are required; `Author`, `Isbn`, and `TagIds` are optional (missing values are filled from the book's metadata). Max file size is 10 MB.
+`Title` and `File` are required; `Author`, `Isbn`, and `TagIds` are optional (missing values are filled from the book's metadata). Max file size is 100 MB.
 
 ## Project structure
 

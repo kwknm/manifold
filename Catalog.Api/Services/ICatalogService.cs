@@ -7,9 +7,8 @@ public interface ICatalogService
 {
     Task<ErrorOr<BookResponse>> AddBookAsync(
         string title, 
-        string? author, 
-        string? isbn, 
-        List<Guid> tagIds,
+        string[] authors, 
+        string? isbn,
         Guid fileId,
         Guid? coverFileId,
         Guid userId,

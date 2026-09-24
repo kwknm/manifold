@@ -1,10 +1,14 @@
 ﻿syntax = "proto3";
 
+import "google/protobuf/empty.proto";
+
 option csharp_namespace = "Shared.Protos";
 
 service Files {
   rpc UploadBook (stream FileChunk) returns (UploadResponse);
   rpc UploadCover (stream FileChunk) returns (UploadResponse);
+  rpc DownloadFile (DownloadRequest) returns (stream FileChunk);
+  rpc DeleteFile (DeleteRequest) returns (google.protobuf.Empty);
 }
 
 message FileChunk {
@@ -12,6 +16,14 @@ message FileChunk {
   string content_type = 2;
   int64 total_size = 3;
   bytes data = 4;
+}
+
+message DownloadRequest {
+  string file_id = 1;
+}
+
+message DeleteRequest {
+  string file_id = 1;
 }
 
 message UploadResponse {

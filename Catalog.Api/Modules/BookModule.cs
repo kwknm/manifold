@@ -3,6 +3,7 @@ using Shared.Clients;
 using Catalog.Api.Contracts;
 using Catalog.Api.Extensions;
 using Catalog.Api.Services;
+using FluentValidation;
 using Grpc.Core;
 using Microsoft.AspNetCore.Mvc;
 using Shared.Extensions;
@@ -23,12 +24,19 @@ public class BookModule : ICarterModule
 
     private async Task<IResult> HandleAddBookAsync(
         [FromForm] AddBookRequest request,
+        IValidator<AddBookRequest> validator,
         ICatalogService service,
         HttpContext httpContext,
         IFilesClient filesClient,
         IMetadataClient metadataClient,
         CancellationToken ct)
     {
+        var validationResult = await validator.ValidateAsync(request, ct);
+        if (!validationResult.IsValid)
+        {
+            return Results.ValidationProblem(validationResult.ToDictionary());
+        }
+
         var userId = httpContext.User.GetUserId();
 
         Guid fileId;
@@ -44,23 +52,24 @@ public class BookModule : ICarterModule
         MetadataResponse metadata;
         try
         {
-            metadata = await metadataClient.FetchBookMetadataAsync(request.File, ct);
+            metadata = await metadataClient.FetchBookMetadataAsync(
+                fileId, request.File.FileName, request.File.ContentType, ct);
         }
         catch (RpcException ex)
         {
             return ex.ToProblemDetails();
         }
 
-        var title = string.IsNullOrWhiteSpace(metadata.Title) ? request.Title : metadata.Title;
-        var author = string.IsNullOrWhiteSpace(metadata.Author) ? request.Author : metadata.Author;
-        var isbn = string.IsNullOrWhiteSpace(metadata.Isbn) ? request.Isbn : metadata.Isbn;
-        Guid.TryParse(metadata.CoverFileId, out var coverFileId);
-        
+        var title = !string.IsNullOrEmpty(metadata.Title) ? metadata.Title : "Unknown";
+        var author = metadata.Authors.ToArray();
+        var isbn = !string.IsNullOrEmpty(metadata.Isbn) ? metadata.Isbn : null;
+
+        var coverFileId = Guid.Parse(metadata.CoverFileId);
+
         var result = await service.AddBookAsync(
             title,
             author,
             isbn,
-            request.TagIds,
             fileId,
             coverFileId,
             userId,

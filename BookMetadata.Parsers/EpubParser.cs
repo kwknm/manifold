@@ -41,16 +41,17 @@ public class EpubParser : IBookParser
 
             var result = new BookMetadata
             {
-                Title = book.Title ?? string.Empty
+                Title = book.Title
             };
 
             if (book.AuthorList.Count == 0 && !string.IsNullOrWhiteSpace(book.Author))
             {
                 book.AuthorList.Add(book.Author);
             }
+
             result.Authors.AddRange(book.AuthorList.Where(a => !string.IsNullOrWhiteSpace(a)));
 
-            result.Isbn = book.Schema?.Package?.Metadata?.Identifiers?
+            result.Isbn = book.Schema.Package.Metadata.Identifiers
                 .FirstOrDefault(i => string.Equals(i.Scheme, "ISBN", StringComparison.OrdinalIgnoreCase))?
                 .Identifier ?? string.Empty;
 
@@ -75,7 +76,7 @@ public class EpubParser : IBookParser
         if (coverBytes is not { Length: > 0 })
         {
             coverBytes = TryReadCoverByHref(book)
-                ?? PlaceholderCoverGenerator.Create(result.Title, result.Author);
+                         ?? PlaceholderCoverGenerator.Create(result.Title, result.Author);
         }
 
         var coverMime = CoverMimeDetector.Detect(coverBytes);
@@ -91,7 +92,7 @@ public class EpubParser : IBookParser
 
     private static byte[]? TryReadCoverByHref(EpubBook book)
     {
-        var coverMeta = book.Schema?.Package?.Metadata?.MetaItems?
+        var coverMeta = book.Schema?.Package?.Metadata?.MetaItems
             .FirstOrDefault(m => string.Equals(m.Name, "cover", StringComparison.OrdinalIgnoreCase))?
             .Content;
 
@@ -102,17 +103,17 @@ public class EpubParser : IBookParser
 
         var item = book.Schema?.Package?.Manifest?.Items?
             .FirstOrDefault(i => string.Equals(i.Href, coverMeta, StringComparison.OrdinalIgnoreCase)
-                && (i.MediaType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ?? false));
+                                 && (i.MediaType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ?? false));
 
         if (item is null)
         {
             return null;
         }
 
-        return book.Content?.AllFiles?.Local?
+        return book.Content.AllFiles.Local
             .OfType<EpubLocalByteContentFile>()
             .FirstOrDefault(f => string.Equals(f.FilePath, item.Href, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(f.Key, item.Href, StringComparison.OrdinalIgnoreCase))?
+                                 || string.Equals(f.Key, item.Href, StringComparison.OrdinalIgnoreCase))?
             .Content;
     }
 
@@ -130,7 +131,6 @@ public class EpubParser : IBookParser
 
     private static string StripHtml(string? html)
     {
-        if (string.IsNullOrEmpty(html)) return string.Empty;
-        return Regex.Replace(html, "<[^>]*>", " ");
+        return string.IsNullOrEmpty(html) ? string.Empty : Regex.Replace(html, "<[^>]*>", " ");
     }
 }

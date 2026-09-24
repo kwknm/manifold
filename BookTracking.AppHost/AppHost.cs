@@ -10,7 +10,8 @@ var usersDb = postgres.AddDatabase("users-db");
 var catalogDb = postgres.AddDatabase("catalog-db");
 var storageDb = postgres.AddDatabase("storage-db");
 
-var minio = builder.AddMinioContainer("minio")
+var seaweedS3 = builder.AddSeaweedFS("seaweedfs")
+    .WithS3()
     .WithDataVolume();
 
 var authService = builder.AddProject<Projects.Auth_Api>("auth")
@@ -22,8 +23,8 @@ var authService = builder.AddProject<Projects.Auth_Api>("auth")
 var storageService = builder.AddProject<Projects.Storage_Grpc>("storage")
     .WithReference(storageDb)
     .WaitFor(storageDb)
-    .WithReference(minio)
-    .WaitFor(minio);
+    .WithReference(seaweedS3)
+    .WaitFor(seaweedS3);
 
 var bookMetadataService = builder.AddProject<Projects.BookMetadata_Grpc>("bookmetadata")
     .WithReference(storageService)

@@ -3,7 +3,7 @@
 public sealed record BookResponse(
     Guid Id,
     string Title,
-    string? Author,
+    string[] Authors,
     string? Isbn,
     Guid? CoverFileId,
     List<TagResponse> Tags,

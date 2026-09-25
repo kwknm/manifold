@@ -78,4 +78,12 @@ public class FilesClient(Files.FilesClient client) : IFilesClient
     {
         await client.DeleteFileAsync(new DeleteRequest { FileId = fileId.ToString() }, cancellationToken: ct);
     }
+
+    public async Task<PresignedUrlResult> GetPresignedUrlAsync(Guid fileId, CancellationToken ct = default)
+    {
+        var response = await client.GetPresignedUrlAsync(new PresignedUrlRequest { FileId = fileId.ToString() },
+            cancellationToken: ct);
+
+        return new PresignedUrlResult(response.Url, response.FileName, response.ContentType);
+    }
 }

@@ -9,6 +9,7 @@ service Files {
   rpc UploadCover (stream FileChunk) returns (UploadResponse);
   rpc DownloadFile (DownloadRequest) returns (stream FileChunk);
   rpc DeleteFile (DeleteRequest) returns (google.protobuf.Empty);
+  rpc GetPresignedUrl (PresignedUrlRequest) returns (PresignedUrlResponse);
 }
 
 message FileChunk {
@@ -28,4 +29,14 @@ message DeleteRequest {
 
 message UploadResponse {
   string file_id = 1;
+}
+
+message PresignedUrlRequest {
+  string file_id = 1;
+}
+
+message PresignedUrlResponse {
+  string url = 1;
+  string file_name = 2;
+  string content_type = 3;
 }

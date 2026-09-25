@@ -92,7 +92,7 @@ public class EpubParser : IBookParser
 
     private static byte[]? TryReadCoverByHref(EpubBook book)
     {
-        var coverMeta = book.Schema?.Package?.Metadata?.MetaItems
+        var coverMeta = book.Schema.Package.Metadata.MetaItems
             .FirstOrDefault(m => string.Equals(m.Name, "cover", StringComparison.OrdinalIgnoreCase))?
             .Content;
 
@@ -101,9 +101,9 @@ public class EpubParser : IBookParser
             return null;
         }
 
-        var item = book.Schema?.Package?.Manifest?.Items?
+        var item = book.Schema.Package.Manifest.Items
             .FirstOrDefault(i => string.Equals(i.Href, coverMeta, StringComparison.OrdinalIgnoreCase)
-                                 && (i.MediaType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ?? false));
+                                 && (i.MediaType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)));
 
         if (item is null)
         {
@@ -121,10 +121,10 @@ public class EpubParser : IBookParser
     {
         const int charsPerPage = 2500;
 
-        var totalChars = book.Content?.Html?.Local?
+        var totalChars = book.Content.Html.Local
             .Select(f => f.Content)
             .Where(c => !string.IsNullOrWhiteSpace(c))
-            .Sum(c => StripHtml(c).Length) ?? 0;
+            .Sum(c => StripHtml(c).Length);
 
         return totalChars > 0 ? (int)Math.Ceiling(totalChars / (double)charsPerPage) : 0;
     }

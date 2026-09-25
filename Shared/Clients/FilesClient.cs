@@ -86,4 +86,24 @@ public class FilesClient(Files.FilesClient client) : IFilesClient
 
         return new PresignedUrlResult(response.Url, response.FileName, response.ContentType);
     }
+
+    public async Task<IReadOnlyDictionary<Guid, PresignedUrlResult>> GetPresignedUrlsAsync(
+        IReadOnlyCollection<Guid> fileIds, CancellationToken ct = default)
+    {
+        if (fileIds.Count == 0)
+        {
+            return new Dictionary<Guid, PresignedUrlResult>();
+        }
+
+        var request = new PresignedUrlsRequest
+        {
+            FileIds = { fileIds.Select(id => id.ToString()) }
+        };
+
+        var response = await client.GetPresignedUrlsAsync(request, cancellationToken: ct);
+
+        return response.Urls.ToDictionary(
+            pair => Guid.Parse(pair.Key),
+            pair => new PresignedUrlResult(pair.Value.Url, pair.Value.FileName, pair.Value.ContentType));
+    }
 }

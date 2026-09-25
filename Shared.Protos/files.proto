@@ -10,6 +10,7 @@ service Files {
   rpc DownloadFile (DownloadRequest) returns (stream FileChunk);
   rpc DeleteFile (DeleteRequest) returns (google.protobuf.Empty);
   rpc GetPresignedUrl (PresignedUrlRequest) returns (PresignedUrlResponse);
+  rpc GetPresignedUrls (PresignedUrlsRequest) returns (PresignedUrlsResponse);
 }
 
 message FileChunk {
@@ -39,4 +40,12 @@ message PresignedUrlResponse {
   string url = 1;
   string file_name = 2;
   string content_type = 3;
+}
+
+message PresignedUrlsRequest {
+  repeated string file_ids = 1;
+}
+
+message PresignedUrlsResponse {
+  map<string, PresignedUrlResponse> urls = 1;
 }

@@ -213,6 +213,7 @@ public sealed class StorageService(
             BucketName = storageFile.BucketName,
             Key = storageFile.ObjectName,
             Verb = HttpVerb.GET,
+            Protocol = Protocol.HTTP,
             Expires = DateTime.UtcNow.AddSeconds(_options.PresignedUrlExpirySeconds)
         });
 

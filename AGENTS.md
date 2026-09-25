@@ -3,6 +3,9 @@
 # .NET SDK
 - SDK pinned by `global.json`: .NET 10 (`10.0.302`, rollForward latestFeature).
 
+## Execution
+- Don't read the files until you've verified with grep that they are relevant.
+
 ## Commands
 - Build: `dotnet build BookTracking.slnx`
 - Tests: `dotnet test BookTracking.slnx` — only test project is `BookMetadata.Tests.Unit` (xunit, pure unit tests, no DB/services needed). Single class: `dotnet test BookMetadata.Tests.Unit --filter "FullyQualifiedName~EpubParserTests"`. Test data is built programmatically via `TestData/*Builder.cs`, no fixture files.

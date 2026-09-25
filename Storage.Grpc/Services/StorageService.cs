@@ -154,28 +154,74 @@ public sealed class StorageService(
 
         try
         {
-            var url = await client.GetPreSignedURLAsync(new GetPreSignedUrlRequest
-            {
-                BucketName = storageFile.BucketName,
-                Key = storageFile.ObjectName,
-                Verb = HttpVerb.GET,
-                Expires = DateTime.UtcNow.AddSeconds(_options.PresignedUrlExpirySeconds)
-            });
+            var response = await BuildPresignedUrlAsync(storageFile);
 
             logger.LogInformation("Generated presigned URL for file {FileId}", fileId);
 
-            return new PresignedUrlResponse
-            {
-                Url = url,
-                FileName = storageFile.OriginalFileName,
-                ContentType = storageFile.ContentType
-            };
+            return response;
         }
         catch (Exception exception)
         {
             logger.LogError(exception, "Failed to generate presigned URL for file {FileId}.", fileId);
             throw new RpcException(new Status(StatusCode.Internal, "Failed to generate presigned URL."));
         }
+    }
+
+    public override async Task<PresignedUrlsResponse> GetPresignedUrls(PresignedUrlsRequest request,
+        ServerCallContext callContext)
+    {
+        var fileIds = new List<Guid>();
+
+        foreach (var rawFileId in request.FileIds)
+        {
+            if (!Guid.TryParse(rawFileId, out var fileId))
+            {
+                throw new RpcException(new Status(StatusCode.InvalidArgument, $"Invalid file id '{rawFileId}'."));
+            }
+
+            fileIds.Add(fileId);
+        }
+
+        var storageFiles = await dbContext.Files
+            .AsNoTracking()
+            .Where(f => fileIds.Contains(f.Id))
+            .ToListAsync(callContext.CancellationToken);
+
+        var response = new PresignedUrlsResponse();
+
+        try
+        {
+            foreach (var storageFile in storageFiles)
+            {
+                response.Urls[storageFile.Id.ToString()] = await BuildPresignedUrlAsync(storageFile);
+            }
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to generate presigned URLs for {Count} files.", fileIds.Count);
+            throw new RpcException(new Status(StatusCode.Internal, "Failed to generate presigned URLs."));
+        }
+
+        logger.LogInformation("Generated {Count} presigned URLs", response.Urls.Count);
+        return response;
+    }
+
+    private async Task<PresignedUrlResponse> BuildPresignedUrlAsync(StorageFile storageFile)
+    {
+        var url = await client.GetPreSignedURLAsync(new GetPreSignedUrlRequest
+        {
+            BucketName = storageFile.BucketName,
+            Key = storageFile.ObjectName,
+            Verb = HttpVerb.GET,
+            Expires = DateTime.UtcNow.AddSeconds(_options.PresignedUrlExpirySeconds)
+        });
+
+        return new PresignedUrlResponse
+        {
+            Url = url,
+            FileName = storageFile.OriginalFileName,
+            ContentType = storageFile.ContentType
+        };
     }
 
     private async Task<UploadResponse> UploadAsync(IAsyncStreamReader<FileChunk> request, string bucketName,

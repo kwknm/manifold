@@ -42,6 +42,9 @@ var catalogService = builder.AddProject<Projects.Catalog_Api>("catalog")
 
 var gateway = builder.AddYarp("gateway")
     .WithHostPort(3000)
+    // Keep in sync with Shared.UploadLimits.MaxRequestSizeBytes (100 MB + multipart overhead),
+    // otherwise the gateway rejects large uploads before they reach Catalog.Api.
+    .WithEnvironment("Kestrel__Limits__MaxRequestBodySize", (110L * 1024 * 1024).ToString())
     .WithConfiguration(yarp =>
     {
         yarp.AddRoute("/api/auth/{**catch-all}", authService)

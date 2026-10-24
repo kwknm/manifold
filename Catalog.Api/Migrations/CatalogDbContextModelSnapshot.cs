@@ -97,6 +97,8 @@ namespace Catalog.Api.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("UserId");
+
                     b.ToTable("Books");
                 });
 
@@ -120,6 +122,9 @@ namespace Catalog.Api.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Name")
+                        .IsUnique();
 
                     b.ToTable("Tags");
                 });

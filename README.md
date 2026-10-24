@@ -75,6 +75,31 @@ Manifold is a backend for an e-book library built with a microservice architectu
 | **Storage.Grpc** | gRPC | Streaming upload of books (`books` bucket) and covers (`covers` bucket) to SeaweedFS, file metadata in PostgreSQL |
 | **BookTracking.AppHost** | Aspire | Orchestration: PostgreSQL ×3, SeaweedFS, gateway, all services with dependencies and health checks |
 
+## HTTP API
+
+All catalog endpoints require a `Bearer` access token.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/auth/register` | Register a user |
+| POST | `/api/auth/login` | Issue access + refresh tokens |
+| POST | `/api/auth/refresh` | Rotate a refresh token |
+| POST | `/api/auth/logout` | Revoke a refresh token |
+| GET | `/api/auth/me` | Current user profile |
+| POST | `/api/catalog/books` | Upload a book (multipart: `File` required, `TagIds` optional, comma-separated) |
+| GET | `/api/catalog/books/my` | Paged catalog: `page`, `pageSize`, `search`, `tagIds` |
+| GET | `/api/catalog/books/{id}` | Book details |
+| GET | `/api/catalog/books/{id}/file` | Presigned download URL for the book file |
+| PATCH | `/api/catalog/books/{id}` | Partial update: `title`, `authors`, `isbn`, `tagIds` |
+| DELETE | `/api/catalog/books/{id}` | Delete a book and its stored files |
+| GET | `/api/catalog/tags` | List tags |
+| POST | `/api/catalog/tags` | Create a tag |
+| PUT | `/api/catalog/tags/{id}` | Update a tag |
+| DELETE | `/api/catalog/tags/{id}` | Delete a tag |
+
+`GET /api/catalog/books/my` returns `{ items, page, pageSize, totalCount, totalPages, hasNextPage }`.
+`PATCH` uses partial semantics: a missing field is left unchanged, an empty `authors`/`tagIds` array clears it.
+
 ## gRPC contracts (`Shared.Protos`)
 
 - `files.proto` — service `Files`: `UploadBook`, `UploadCover` (streaming upload), `DownloadFile` (streaming download), `DeleteFile`

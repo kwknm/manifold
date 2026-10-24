@@ -12,9 +12,16 @@ public class TagService(ILogger<TagService> logger, CatalogDbContext context) : 
     public async Task<ErrorOr<TagResponse>> AddTagAsync(string name, string colorHex, Guid userId,
         CancellationToken ct = default)
     {
+        var trimmedName = name.Trim();
+
+        if (await NameExistsAsync(trimmedName, userId, excludeTagId: null, ct))
+        {
+            return CatalogErrors.Tag.AlreadyExists;
+        }
+
         var tag = new Tag
         {
-            Name = name,
+            Name = trimmedName,
             ColorHex = colorHex,
             UserId = userId
         };
@@ -35,14 +42,83 @@ public class TagService(ILogger<TagService> logger, CatalogDbContext context) : 
 
     public async Task<List<TagResponse>> GetTagsByUserIdAsync(Guid userId, CancellationToken ct = default)
     {
-        var tags = await context.Tags.Where(x => x.UserId == userId)
-            .Select(t => new TagResponse(t)).ToListAsync(ct);
-
-        return tags;
+        return await context.Tags
+            .AsNoTracking()
+            .Where(x => x.UserId == userId)
+            .OrderBy(x => x.Name)
+            .Select(t => new TagResponse
+            {
+                Id = t.Id,
+                Name = t.Name,
+                ColorHex = t.ColorHex
+            })
+            .ToListAsync(ct);
     }
 
-    public async Task<List<Tag>> GetTagsAsync(List<Guid> tagIds, CancellationToken ct = default)
+    public async Task<ErrorOr<TagResponse>> UpdateTagAsync(Guid tagId, string name, string colorHex,
+        Guid userId, CancellationToken ct = default)
     {
-        return await context.Tags.Where(t => tagIds.Contains(t.Id)).ToListAsync(ct);
+        var tag = await context.Tags
+            .FirstOrDefaultAsync(t => t.Id == tagId && t.UserId == userId, ct);
+
+        if (tag is null)
+        {
+            return CatalogErrors.Tag.NotFound;
+        }
+
+        var trimmedName = name.Trim();
+
+        if (await NameExistsAsync(trimmedName, userId, tagId, ct))
+        {
+            return CatalogErrors.Tag.AlreadyExists;
+        }
+
+        tag.Name = trimmedName;
+        tag.ColorHex = colorHex;
+
+        try
+        {
+            await context.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex)
+        {
+            logger.LogError(ex, "Failed to update tag {TagId} for user {UserId}", tagId, userId);
+            return CatalogErrors.Tag.FailedToUpdate;
+        }
+
+        return new TagResponse(tag);
+    }
+
+    public async Task<ErrorOr<Success>> DeleteTagAsync(Guid tagId, Guid userId, CancellationToken ct = default)
+    {
+        var tag = await context.Tags
+            .FirstOrDefaultAsync(t => t.Id == tagId && t.UserId == userId, ct);
+
+        if (tag is null)
+        {
+            return CatalogErrors.Tag.NotFound;
+        }
+
+        context.Tags.Remove(tag);
+
+        try
+        {
+            await context.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex)
+        {
+            logger.LogError(ex, "Failed to delete tag {TagId} for user {UserId}", tagId, userId);
+            return CatalogErrors.Tag.FailedToDelete;
+        }
+
+        return Result.Success;
+    }
+
+    private Task<bool> NameExistsAsync(string name, Guid userId, Guid? excludeTagId, CancellationToken ct)
+    {
+        return context.Tags
+            .AnyAsync(t => t.UserId == userId
+                           && t.Name == name
+                           && (excludeTagId == null || t.Id != excludeTagId), ct);
     }
 }

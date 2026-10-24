@@ -19,7 +19,11 @@ public class BookModule : ICarterModule
             .RequireAuthorization();
 
         group.MapPost<AddBookRequest>("/", HandleAddBookAsync)
+            .RequireAuthorization()
             .DisableAntiforgery();
+
+        group.MapGet("/my", GetMyCatalogAsync)
+            .RequireAuthorization();
     }
 
     private async Task<IResult> HandleAddBookAsync(
@@ -76,5 +80,14 @@ public class BookModule : ICarterModule
             ct);
 
         return result.MapToResponseAsync(response => Results.Created("/books", response));
+    }
+
+    private async Task<IResult> GetMyCatalogAsync(ICatalogService catalogService, HttpContext httpContext,
+        CancellationToken ct)
+    {
+        var userId = httpContext.User.GetUserId();
+
+        var result = await catalogService.GetUserCatalogAsync(userId, ct);
+        return Results.Ok(result);
     }
 }

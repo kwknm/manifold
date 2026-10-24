@@ -7,4 +7,7 @@ public interface IFilesClient
     Task<Guid> UploadBookAsync(IFormFile file, CancellationToken ct = default);
     Task<DownloadedFile> DownloadFileAsync(Guid fileId, CancellationToken ct = default);
     Task DeleteFileAsync(Guid fileId, CancellationToken ct = default);
+    Task<PresignedUrlResult> GetPresignedUrlAsync(Guid fileId, CancellationToken ct = default);
+    Task<IReadOnlyDictionary<Guid, PresignedUrlResult>> GetPresignedUrlsAsync(IReadOnlyCollection<Guid> fileIds,
+        CancellationToken ct = default);
 }

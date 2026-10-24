@@ -1,10 +1,28 @@
-﻿namespace Catalog.Api.Contracts;
+﻿using Catalog.Api.Database.Entities;
 
-public sealed record BookResponse(
-    Guid Id,
-    string Title,
-    string[] Authors,
-    string? Isbn,
-    Guid? CoverFileId,
-    List<TagResponse> Tags,
-    Guid UserId);
+namespace Catalog.Api.Contracts;
+
+public sealed class BookResponse
+{
+    public BookResponse()
+    {
+    }
+
+    public BookResponse(Book book)
+    {
+        Id = book.Id;
+        Title = book.Title;
+        Authors = [.. book.Authors.Select(a => a.FullName)];
+        Isbn = book.Isbn;
+        Tags = [.. book.Tags.Select(t => new TagResponse(t))];
+        UserId = book.UserId;
+    }
+
+    public Guid Id { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public IList<string> Authors { get; set; } = [];
+    public string? Isbn { get; set; }
+    public string? CoverUrl { get; set; }
+    public IList<TagResponse> Tags { get; set; } = [];
+    public Guid UserId { get; set; }
+}

@@ -12,5 +12,7 @@ public interface ICatalogService
         Guid fileId,
         Guid? coverFileId,
         Guid userId,
-        CancellationToken cancellationToken = default);
+        CancellationToken ct = default);
+
+    Task<IList<BookResponse>> GetUserCatalogAsync(Guid userId, CancellationToken ct = default);
 }

@@ -10,7 +10,7 @@ Manifold is a backend for an e-book library built with a microservice architectu
   - PDF — first page is rendered to a JPEG (PDFium)
   - EPUB / FB2 — cover image is extracted from the file; broken EPUB2 cover metadata (href instead of manifest ID) is repaired automatically
   - If no cover is found or it is not a raster image — a deterministic abstract placeholder is generated (SkiaSharp)
-  - Covers are stored in a dedicated MinIO bucket `covers`
+  - Covers are stored in a dedicated SeaweedFS bucket `covers`
 - **Personal catalog** with tags (colored) and per-user data isolation
 - **JWT authentication** with refresh tokens and PBKDF2 password hashing
 
@@ -21,7 +21,7 @@ Manifold is a backend for an e-book library built with a microservice architectu
 - **ASP.NET Core (Minimal APIs + Carter)** — REST API
 - **gRPC** — inter-service communication (proto contracts in `Shared.Protos`)
 - **PostgreSQL + EF Core 10** — data storage (migrations are applied automatically on startup)
-- **MinIO** — object storage for book files and covers
+- **SeaweedFS** (S3-compatible API) — object storage for book files and covers
 - **YARP** — API gateway with prefix-based routing
 - **FluentValidation**, **ErrorOr** — request validation and result types
 - **VersOne.Epub**, **PdfPig**, **PDFtoImage**, **SkiaSharp** — book parsing and cover rendering
@@ -48,20 +48,20 @@ Manifold is a backend for an e-book library built with a microservice architectu
    │ (Postgres│   │ db       │   │ (Postgres)      │
    └──────────┘   └──────────┘   └────────┬────────┘
                                           │
-                                   ┌──────▼─────┐
-                                   │   MinIO    │
+                                   ┌──────▼──────┐
+                                   │ SeaweedFS   │
                                    │ books/covers│
-                                   └────────────┘
+                                   └─────────────┘
 ```
 
 ### Book upload flow
 
 1. Client sends a multipart request to `POST /api/catalog/books`
-2. `Catalog.Api` streams the file to `Storage.Grpc` → MinIO bucket `books`, getting a `file_id` back
+2. `Catalog.Api` streams the file to `Storage.Grpc` → SeaweedFS bucket `books`, getting a `file_id` back
 3. `Catalog.Api` requests metadata from `BookMetadata.Grpc`, passing only `file_id` (the file itself is not re-transferred):
    - `BookMetadata.Grpc` downloads the book from `Storage.Grpc` (`DownloadFile`)
    - the book is parsed, the cover is extracted (or generated as a placeholder)
-   - the cover is uploaded to `Storage.Grpc` → MinIO bucket `covers`
+   - the cover is uploaded to `Storage.Grpc` → SeaweedFS bucket `covers`
    - `cover_file_id` is returned together with the rest of the metadata
 4. `Catalog.Api` stores the book in the personal catalog (`catalog-db`)
 
@@ -72,8 +72,8 @@ Manifold is a backend for an e-book library built with a microservice architectu
 | **Auth.Api** | REST `/api/auth` | Registration, login, logout, token refresh |
 | **Catalog.Api** | REST `/api/catalog` | Personal book catalog and tags (CRUD) |
 | **BookMetadata.Grpc** | gRPC | Metadata and cover extraction (EPUB, FB2, PDF) |
-| **Storage.Grpc** | gRPC | Streaming upload of books (`books` bucket) and covers (`covers` bucket) to MinIO, file metadata in PostgreSQL |
-| **BookTracking.AppHost** | Aspire | Orchestration: PostgreSQL ×3, MinIO, gateway, all services with dependencies and health checks |
+| **Storage.Grpc** | gRPC | Streaming upload of books (`books` bucket) and covers (`covers` bucket) to SeaweedFS, file metadata in PostgreSQL |
+| **BookTracking.AppHost** | Aspire | Orchestration: PostgreSQL ×3, SeaweedFS, gateway, all services with dependencies and health checks |
 
 ## gRPC contracts (`Shared.Protos`)
 
@@ -89,11 +89,11 @@ Manifold is a backend for an e-book library built with a microservice architectu
    dotnet run --project BookTracking.AppHost
    ```
 
-3. Aspire starts PostgreSQL, MinIO, and all services.
+3. Aspire starts PostgreSQL, SeaweedFS, and all services.
 4. The API is available through the gateway on port 3000:
    - `/api/auth/**` — Auth.Api
    - `/api/catalog/**` — Catalog.Api
-   - MinIO console and PgWeb (port 5050) are available for debugging
+   - the SeaweedFS Filer UI (`:8888`) and PgWeb (`:5050`) are available for debugging
 
 ### Example: adding a book
 
@@ -116,7 +116,7 @@ Auth.Api/               # REST authentication service
 Catalog.Api/            # REST catalog service (books, tags)
 BookMetadata.Grpc/      # gRPC metadata extraction service
 BookMetadata.Parsers/   # Parser library (EPUB, FB2, PDF) + cover generation
-Storage.Grpc/           # gRPC file storage service (MinIO)
+Storage.Grpc/           # gRPC file storage service (SeaweedFS)
 BookTracking.AppHost/   # Aspire orchestrator
 BookTracking.ServiceDefaults/  # Shared Aspire settings (telemetry, health checks)
 Shared/                 # Common components: gRPC clients, JWT options, content types

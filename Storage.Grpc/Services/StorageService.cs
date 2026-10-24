@@ -135,11 +135,101 @@ public sealed class StorageService(
         }
     }
 
+    public override async Task<PresignedUrlResponse> GetPresignedUrl(PresignedUrlRequest request,
+        ServerCallContext callContext)
+    {
+        if (!Guid.TryParse(request.FileId, out var fileId))
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid file id."));
+        }
+
+        var storageFile = await dbContext.Files
+            .AsNoTracking()
+            .FirstOrDefaultAsync(f => f.Id == fileId, callContext.CancellationToken);
+
+        if (storageFile is null)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, $"File '{request.FileId}' not found."));
+        }
+
+        try
+        {
+            var response = await BuildPresignedUrlAsync(storageFile);
+
+            logger.LogInformation("Generated presigned URL for file {FileId}", fileId);
+
+            return response;
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to generate presigned URL for file {FileId}.", fileId);
+            throw new RpcException(new Status(StatusCode.Internal, "Failed to generate presigned URL."));
+        }
+    }
+
+    public override async Task<PresignedUrlsResponse> GetPresignedUrls(PresignedUrlsRequest request,
+        ServerCallContext callContext)
+    {
+        var fileIds = new List<Guid>();
+
+        foreach (var rawFileId in request.FileIds)
+        {
+            if (!Guid.TryParse(rawFileId, out var fileId))
+            {
+                throw new RpcException(new Status(StatusCode.InvalidArgument, $"Invalid file id '{rawFileId}'."));
+            }
+
+            fileIds.Add(fileId);
+        }
+
+        var storageFiles = await dbContext.Files
+            .AsNoTracking()
+            .Where(f => fileIds.Contains(f.Id))
+            .ToListAsync(callContext.CancellationToken);
+
+        var response = new PresignedUrlsResponse();
+
+        try
+        {
+            foreach (var storageFile in storageFiles)
+            {
+                response.Urls[storageFile.Id.ToString()] = await BuildPresignedUrlAsync(storageFile);
+            }
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to generate presigned URLs for {Count} files.", fileIds.Count);
+            throw new RpcException(new Status(StatusCode.Internal, "Failed to generate presigned URLs."));
+        }
+
+        logger.LogInformation("Generated {Count} presigned URLs", response.Urls.Count);
+        return response;
+    }
+
+    private async Task<PresignedUrlResponse> BuildPresignedUrlAsync(StorageFile storageFile)
+    {
+        var url = await client.GetPreSignedURLAsync(new GetPreSignedUrlRequest
+        {
+            BucketName = storageFile.BucketName,
+            Key = storageFile.ObjectName,
+            Verb = HttpVerb.GET,
+            Protocol = Protocol.HTTP,
+            Expires = DateTime.UtcNow.AddSeconds(_options.PresignedUrlExpirySeconds)
+        });
+
+        return new PresignedUrlResponse
+        {
+            Url = url,
+            FileName = storageFile.OriginalFileName,
+            ContentType = storageFile.ContentType
+        };
+    }
+
     private async Task<UploadResponse> UploadAsync(IAsyncStreamReader<FileChunk> request, string bucketName,
         ServerCallContext callContext)
     {
-        var objectName = Guid.CreateVersion7().ToString("N");
-
+        var objectName = string.Empty;
+        
         try
         {
             await EnsureBucketExistsAsync(bucketName, callContext.CancellationToken);
@@ -163,7 +253,8 @@ public sealed class StorageService(
             ms.Position = 0;
             contentType ??= ContentType.DEFAULT.ToValue();
             fileName ??= string.Empty;
-
+            
+            objectName = Guid.CreateVersion7().ToString("N") + Path.GetExtension(fileName);
             var sizeBytes = ms.Length;
 
             await client.PutObjectAsync(new PutObjectRequest
@@ -199,7 +290,7 @@ public sealed class StorageService(
             {
                 BucketName = bucketName,
                 Key = objectName
-            }, CancellationToken.None);
+            });
 
             throw new RpcException(new Status(
                 StatusCode.Internal,

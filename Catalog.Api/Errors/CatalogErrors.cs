@@ -9,6 +9,10 @@ public static class CatalogErrors
         public static Error FailedToCreate => Error.Failure(
             code: "Book.FailedToCreate",
             description: "Failed to create book.");
+
+        public static Error NotFound => Error.NotFound(
+            code: "Book.NotFound",
+            description: "Book not found.");
     }
     
     public static class Tag

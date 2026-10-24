@@ -24,6 +24,12 @@ public class BookModule : ICarterModule
 
         group.MapGet("/my", GetMyCatalogAsync)
             .RequireAuthorization();
+
+        group.MapGet("/{id:guid}", GetBookAsync)
+            .RequireAuthorization();
+
+        group.MapGet("/{id:guid}/file", GetBookFileAsync)
+            .RequireAuthorization();
     }
 
     private async Task<IResult> HandleAddBookAsync(
@@ -89,5 +95,30 @@ public class BookModule : ICarterModule
 
         var result = await catalogService.GetUserCatalogAsync(userId, ct);
         return Results.Ok(result);
+    }
+
+    private static async Task<IResult> GetBookAsync(Guid id, ICatalogService catalogService,
+        HttpContext httpContext, CancellationToken ct)
+    {
+        var userId = httpContext.User.GetUserId();
+
+        var result = await catalogService.GetBookAsync(id, userId, ct);
+        return result.MapToResponseAsync(Results.Ok);
+    }
+
+    private static async Task<IResult> GetBookFileAsync(Guid id, ICatalogService catalogService,
+        HttpContext httpContext, CancellationToken ct)
+    {
+        var userId = httpContext.User.GetUserId();
+
+        try
+        {
+            var result = await catalogService.GetBookFileAsync(id, userId, ct);
+            return result.MapToResponseAsync(Results.Ok);
+        }
+        catch (RpcException ex)
+        {
+            return ex.ToProblemDetails();
+        }
     }
 }

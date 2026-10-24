@@ -15,4 +15,8 @@ public interface ICatalogService
         CancellationToken ct = default);
 
     Task<IList<BookResponse>> GetUserCatalogAsync(Guid userId, CancellationToken ct = default);
+
+    Task<ErrorOr<BookResponse>> GetBookAsync(Guid bookId, Guid userId, CancellationToken ct = default);
+
+    Task<ErrorOr<BookFileResponse>> GetBookFileAsync(Guid bookId, Guid userId, CancellationToken ct = default);
 }

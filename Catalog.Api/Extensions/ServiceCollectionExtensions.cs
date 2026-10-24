@@ -1,5 +1,7 @@
 ﻿using Carter;
 using FluentValidation;
+using Microsoft.AspNetCore.Http.Features;
+using Shared;
 using Shared.Clients;
 using Catalog.Api.Database;
 using Catalog.Api.Services;
@@ -12,6 +14,14 @@ public static class ServiceCollectionExtensions
 {
     public static WebApplicationBuilder AddServices(this WebApplicationBuilder builder)
     {
+        // Default Kestrel/form limits are 30 MB, which contradicts the 100 MB
+        // upload limit enforced by AddBookRequestValidator.
+        builder.WebHost.ConfigureKestrel(options =>
+            options.Limits.MaxRequestBodySize = UploadLimits.MaxRequestSizeBytes);
+
+        builder.Services.Configure<FormOptions>(options =>
+            options.MultipartBodyLengthLimit = UploadLimits.MaxRequestSizeBytes);
+
         builder.Services.AddProblemDetails();
         builder.Services.AddOpenApi();
         builder.Services.AddCarter();

@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Catalog.Api.Services;
 
 /// <summary>
@@ -46,6 +48,15 @@ public static class BookMetadataNormalizer
             .Distinct(StringComparer.Ordinal)
             .ToArray();
     }
+
+    /// <summary>
+    /// Identity key for an author, stored in <c>Authors.NormalizedName</c>. Metadata casing is
+    /// not meaningful ("Толстой" and "толстой" are one author) while Unicode composition is
+    /// invisible, so both are folded away. Truncation matches <see cref="MaxAuthorLength"/> to
+    /// keep the key inside the column: lower-casing a few characters can lengthen a string.
+    /// </summary>
+    public static string NormalizeAuthorKey(string name)
+        => Truncate(name.Normalize(NormalizationForm.FormC).ToLowerInvariant(), MaxAuthorLength);
 
     public static bool ExceedsTitleLimit(string? title) => CollapseWhitespace(title).Length > MaxTitleLength;
 

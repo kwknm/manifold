@@ -62,14 +62,29 @@ public class PdfParser : IBookParser
             using var cover = Downscale(page, MaxCoverWidth);
             using var data = cover.Encode(SKEncodedImageFormat.Jpeg, JpegQuality);
 
-            result.CoverImage = data.ToArray();
-            result.CoverContentType = CoverMimeDetector.Jpeg;
+            // Built-in rendering already produces a JPEG, but it still goes through the same
+            // validator so every cover follows one path (dimension checks included).
+            var validated = CoverValidator.Validate(data.ToArray(), CoverMimeDetector.Jpeg);
+
+            if (validated is null)
+            {
+                SetPlaceholder(result);
+                return;
+            }
+
+            result.CoverImage = validated.Bytes;
+            result.CoverContentType = validated.ContentType;
         }
         catch (Exception)
         {
-            result.CoverImage = PlaceholderCoverGenerator.Create(result.Title, result.Author);
-            result.CoverContentType = CoverMimeDetector.Jpeg;
+            SetPlaceholder(result);
         }
+    }
+
+    private static void SetPlaceholder(BookMetadata result)
+    {
+        result.CoverImage = PlaceholderCoverGenerator.Create(result.Title, result.Author);
+        result.CoverContentType = CoverMimeDetector.Jpeg;
     }
 
     private static SKBitmap Downscale(SKBitmap bitmap, int maxWidth)

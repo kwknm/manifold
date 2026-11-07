@@ -11,6 +11,9 @@ builder.Services.AddGrpcClient<Files.FilesClient>(o =>
     o.Address = new Uri("http://storage");
 });
 
+// Bounds concurrent parsing: each request decompresses archives and renders images.
+builder.Services.AddSingleton<ParserConcurrencyLimiter>();
+
 var app = builder.Build();
 
 app.MapGrpcService<MetadataService>();

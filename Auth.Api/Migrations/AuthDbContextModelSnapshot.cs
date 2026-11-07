@@ -56,6 +56,10 @@ namespace Auth.Api.Migrations
 
                     b.HasIndex("FamilyId");
 
+                    b.HasIndex("ReplacedByTokenHash")
+                        .IsUnique()
+                        .HasFilter("\"ReplacedByTokenHash\" IS NOT NULL");
+
                     b.HasIndex("TokenHash")
                         .IsUnique();
 

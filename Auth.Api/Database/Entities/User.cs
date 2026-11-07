@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
 
 namespace Auth.Api.Database.Entities;
@@ -9,6 +9,11 @@ public class User
     public Guid Id { get; set; }
     [MaxLength(254)] public string Email { get; set; } = string.Empty;
     [MaxLength(12)] public string UserName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Format: <c>algorithm.iterations.base64(salt).base64(hash)</c>. 256 chars fits
+    /// SHA-512 with the largest allowed salt and key sizes.
+    /// </summary>
     [MaxLength(256)] public string PasswordHash { get; set; } = string.Empty;
 
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();

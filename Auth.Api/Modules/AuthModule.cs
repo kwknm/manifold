@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Auth.Api.Contracts;
+using Auth.Api.Extensions;
 using Auth.Api.Services;
 using Carter;
 using Shared.Extensions;
@@ -11,14 +12,19 @@ public class AuthModule : ICarterModule
     public void AddRoutes(IEndpointRouteBuilder app)
     {
         app.MapPost<RegisterRequest>("/register", HandleRegisterAsync)
+            .RequireRateLimiting(RateLimitingExtensions.RegisterPolicy)
             .AllowAnonymous();
 
         app.MapPost<LoginRequest>("/login", HandleLoginAsync)
+            .RequireRateLimiting(RateLimitingExtensions.LoginPolicy)
             .AllowAnonymous();
 
         app.MapPost<RefreshRequest>("/refresh", HandleRefreshAsync)
+            .RequireRateLimiting(RateLimitingExtensions.RefreshPolicy)
             .AllowAnonymous();
 
+        // Logout is only meaningful with a valid refresh token and revokes nothing else,
+        // so it is not rate limited: a throttled logout would keep a session alive.
         app.MapPost<LogoutRequest>("/logout", HandleLogoutAsync)
             .AllowAnonymous();
 

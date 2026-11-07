@@ -111,28 +111,47 @@ public sealed class StorageService(
 
         if (storageFile is null)
         {
-            throw new RpcException(new Status(StatusCode.NotFound, $"File '{request.FileId}' not found."));
+            // Deleting an already-deleted file is not an error: callers retry cleanup and
+            // must be able to do so idempotently.
+            logger.LogInformation("Delete requested for unknown file {FileId}; treating as already deleted", fileId);
+            return new Empty();
         }
 
+        // The row is removed first: the database is the source of truth for which files
+        // should exist, and a row without an object is a broken reference that no cleanup
+        // can detect from the catalog side. The reverse order leaves exactly that.
+        dbContext.Files.Remove(storageFile);
+
+        try
+        {
+            await dbContext.SaveChangesAsync(callContext.CancellationToken);
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to remove file metadata for {FileId}.", fileId);
+            throw new RpcException(new Status(StatusCode.Internal, "Failed to delete file."));
+        }
+
+        // Object removal is best-effort: a failure leaves an orphaned object, which is
+        // inert (unreferenced, not user-visible) and preferable to failing a delete that
+        // already committed its database change.
         try
         {
             await client.DeleteObjectAsync(new DeleteObjectRequest
             {
                 BucketName = storageFile.BucketName,
                 Key = storageFile.ObjectName
-            }, callContext.CancellationToken);
-
-            dbContext.Files.Remove(storageFile);
-            await dbContext.SaveChangesAsync(callContext.CancellationToken);
-
-            logger.LogInformation("Deleted file {FileId} from bucket {Bucket}", fileId, storageFile.BucketName);
-            return new Empty();
+            }, CancellationToken.None);
         }
         catch (Exception exception)
         {
-            logger.LogError(exception, "Failed to delete file {FileId}.", fileId);
-            throw new RpcException(new Status(StatusCode.Internal, "Failed to delete file."));
+            logger.LogWarning(exception,
+                "Removed metadata for {FileId} but failed to delete object {ObjectName} in bucket {Bucket}",
+                fileId, storageFile.ObjectName, storageFile.BucketName);
         }
+
+        logger.LogInformation("Deleted file {FileId} from bucket {Bucket}", fileId, storageFile.BucketName);
+        return new Empty();
     }
 
     public override async Task<PresignedUrlResponse> GetPresignedUrl(PresignedUrlRequest request,

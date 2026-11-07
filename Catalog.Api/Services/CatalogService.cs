@@ -51,13 +51,26 @@ public class CatalogService(ILogger<CatalogService> logger, CatalogDbContext con
             await context.Books.AddAsync(book, ct);
             await context.SaveChangesAsync(ct);
         }
+        catch (DbUpdateException ex) when (ex.IsUniqueViolationOn(DbExceptionExtensions.AuthorNameIndexName))
+        {
+            // Lost the race creating an author with a concurrent upload. The row for this
+            // attempt is gone with the failed transaction, so retrying once with the
+            // now-visible author resolves it.
+            logger.LogInformation(
+                "Author conflict while creating book for user {UserId}; retrying once", userId);
+
+            return await RetryAddBookAsync(book, title, userId, ct);
+        }
         catch (DbUpdateException ex)
         {
             logger.LogError(ex, "Failed to create book with title {Title} for user {UserId}", title, userId);
             return CatalogErrors.Book.FailedToCreate;
         }
 
-        return await BuildResponseAsync(book, ct);
+        // The book is committed from here on: its files belong to it. Enrichment below is
+        // best-effort and must never surface as a failure, otherwise a transient Storage
+        // error would make the caller delete the files of a book that already exists.
+        return await BuildResponseAsync(book, CancellationToken.None);
     }
 
     public async Task<PagedResponse<BookResponse>> GetUserCatalogAsync(GetBooksQuery query, Guid userId,
@@ -89,7 +102,11 @@ public class CatalogService(ILogger<CatalogService> logger, CatalogDbContext con
 
         var rows = await books
             .AsSplitQuery()
+            // Title alone is not unique, so paging would be non-deterministic: rows with
+            // equal titles could be skipped or repeated across requests. Id makes the
+            // ordering total.
             .OrderBy(x => x.Title)
+            .ThenBy(x => x.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(x => new BookRow
@@ -259,6 +276,50 @@ public class CatalogService(ILogger<CatalogService> logger, CatalogDbContext con
         return Result.Success;
     }
 
+    /// <summary>
+    /// Second attempt after an author unique-violation race. The losing transaction is
+    /// discarded, authors are re-resolved against the now-committed winner, and the book
+    /// is saved again.
+    /// </summary>
+    private async Task<ErrorOr<BookResponse>> RetryAddBookAsync(Book failedBook, string title, Guid userId,
+        CancellationToken ct)
+    {
+        var entry = context.Entry(failedBook);
+        if (entry.State != EntityState.Detached)
+        {
+            entry.State = EntityState.Detached;
+        }
+
+        var authors = await ResolveAuthorsAsync(failedBook.Authors.Select(a => a.FullName), userId, ct);
+        var tags = failedBook.Tags.ToList();
+
+        var book = new Book
+        {
+            Title = failedBook.Title,
+            Isbn = failedBook.Isbn,
+            FileId = failedBook.FileId,
+            CoverFileId = failedBook.CoverFileId,
+            UserId = failedBook.UserId,
+            Authors = authors,
+            Tags = tags
+        };
+
+        try
+        {
+            await context.Books.AddAsync(book, ct);
+            await context.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex)
+        {
+            logger.LogError(ex, "Failed to create book with title {Title} for user {UserId} after retry",
+                title, userId);
+
+            return CatalogErrors.Book.FailedToCreate;
+        }
+
+        return await BuildResponseAsync(book, CancellationToken.None);
+    }
+
     private async Task<ErrorOr<List<Tag>>> ResolveTagsAsync(IReadOnlyCollection<Guid> tagIds, Guid userId,
         CancellationToken ct)
     {
@@ -276,11 +337,7 @@ public class CatalogService(ILogger<CatalogService> logger, CatalogDbContext con
     private async Task<List<Author>> ResolveAuthorsAsync(IEnumerable<string> names, Guid userId,
         CancellationToken ct)
     {
-        var normalized = names
-            .Select(name => name.Trim())
-            .Where(name => name.Length > 0)
-            .Distinct()
-            .ToList();
+        var normalized = BookMetadataNormalizer.NormalizeAuthors(names).ToList();
 
         if (normalized.Count == 0)
         {
@@ -292,7 +349,7 @@ public class CatalogService(ILogger<CatalogService> logger, CatalogDbContext con
             .ToListAsync(ct);
 
         var newAuthors = normalized
-            .Except(existingAuthors.Select(a => a.FullName))
+            .Except(existingAuthors.Select(a => a.FullName), StringComparer.Ordinal)
             .Select(name => new Author { FullName = name, UserId = userId })
             .ToList();
 
@@ -304,6 +361,11 @@ public class CatalogService(ILogger<CatalogService> logger, CatalogDbContext con
         return [.. existingAuthors, .. newAuthors];
     }
 
+    /// <summary>
+    /// Adds the cover URL to a response after the book row is committed. Enrichment is
+    /// deliberately non-fatal and never propagates: by this point the book owns its files,
+    /// so a transient Storage failure must not make the caller roll the upload back.
+    /// </summary>
     private async Task<BookResponse> BuildResponseAsync(Book book, CancellationToken ct)
     {
         var response = new BookResponse(book);
@@ -314,7 +376,7 @@ public class CatalogService(ILogger<CatalogService> logger, CatalogDbContext con
             {
                 response.CoverUrl = (await filesClient.GetPresignedUrlAsync(book.CoverFileId.Value, ct)).Url;
             }
-            catch (RpcException ex)
+            catch (Exception ex)
             {
                 logger.LogWarning(ex, "Failed to generate cover URL for book {BookId}", book.Id);
             }

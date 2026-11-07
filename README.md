@@ -65,6 +65,10 @@ Manifold is a backend for an e-book library built with a microservice architectu
    - `cover_file_id` is returned together with the rest of the metadata
 4. `Catalog.Api` stores the book in the personal catalog (`catalog-db`)
 
+### Trust boundary
+
+Only the gateway (port 3000) is exposed externally; it routes `/api/auth/**` and `/api/catalog/**`. `Storage.Grpc` and `BookMetadata.Grpc` are internal-only and must not be published. For a public deployment, add service-to-service authentication before exposing them directly.
+
 ## Services
 
 | Service | Type | Purpose |
@@ -120,19 +124,38 @@ All catalog endpoints require a `Bearer` access token.
    - `/api/catalog/**` — Catalog.Api
    - the SeaweedFS Filer UI (`:8888`) and PgWeb (`:5050`) are available for debugging
 
+### Secrets and configuration
+
+The JWT signing key is not stored in `appsettings.json`. In local development it lives in .NET user secrets; both services must use the same value, otherwise `Catalog.Api` rejects tokens issued by `Auth.Api`:
+
+```bash
+secret=$(openssl rand -base64 48)
+dotnet user-secrets set "Jwt:SecretKey" "$secret" --project Auth.Api
+dotnet user-secrets set "Jwt:SecretKey" "$secret" --project Catalog.Api
+```
+
+On Windows PowerShell:
+
+```powershell
+$secret = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
+dotnet user-secrets set "Jwt:SecretKey" $secret --project Auth.Api
+dotnet user-secrets set "Jwt:SecretKey" $secret --project Catalog.Api
+```
+
+In deployment, provide `Jwt__SecretKey` through the environment or a secret store; user secrets are local-development only.
+
+Set `Seaweed__PresignedUrlUseHttps=true` outside local development; local SeaweedFS runs without TLS, so the default is `false`.
+
 ### Example: adding a book
 
 ```bash
 curl -X POST http://localhost:3000/api/catalog/books \
   -H "Authorization: Bearer <token>" \
-  -F "Title=The Book" \
-  -F "Author=Author Name" \
-  -F "Isbn=978-5-1" \
   -F "TagIds=<tag-guid>" \
   -F "File=@book.epub;type=application/epub+zip"
 ```
 
-`Title` and `File` are required; `Author`, `Isbn`, and `TagIds` are optional (missing values are filled from the book's metadata). Max file size is 100 MB.
+`File` is required; `TagIds` is optional (comma-separated GUIDs). Title, authors and ISBN are extracted from the uploaded book; the client cannot override them. Max file size is 100 MB.
 
 ## Project structure
 

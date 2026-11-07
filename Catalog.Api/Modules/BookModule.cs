@@ -31,10 +31,7 @@ public class BookModule : ICarterModule
         group.MapGet("/{id:guid}/file", GetBookFileAsync)
             .WithName("GetBookFile");
 
-        group.MapMethods("/{id:guid}", [HttpMethods.Patch],
-                (Guid id, UpdateBookRequest request, IValidator<UpdateBookRequest> validator,
-                    ICatalogService catalogService, HttpContext httpContext, CancellationToken ct) =>
-                    UpdateBookAsync(id, request, validator, catalogService, httpContext, ct))
+        group.MapPatch("/{id:guid}", UpdateBookAsync)
             .WithName("UpdateBook");
 
         group.MapDelete("/{id:guid}", DeleteBookAsync)

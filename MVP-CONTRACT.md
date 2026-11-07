@@ -2,7 +2,7 @@
 
 | Параметр | Значение |
 |---|---|
-| Статус | Этап 0 принят; этапы 1–2 выполнены (BE-002, BE-003, BE-004, BE-016; BE-006, BE-007, BE-008, BE-009) |
+| Статус | Этап 0 принят; этапы 1–3 выполнены (BE-002…BE-004, BE-016; BE-006…BE-009; BE-010…BE-015) |
 | Дата | 2026-11-07 |
 | Область | Только Backend. Frontend, UI и клиентские приложения не рассматриваются |
 | Решения владельца | (1) Загрузка книги использует только автоматически извлечённые метаданные, без override-полей `Title`/`Author`/`Isbn`; (2) MVP разворачивается в закрытом/контролируемом окружении |
@@ -161,9 +161,10 @@
 
 Требования:
 
-- MIME сравнивается case-insensitively; MIME и расширение должны быть согласованы (BE-013).
-- FB2.ZIP принимается с FB2 Content-Type; распаковка ограничена (BE-012).
+- MIME сравнивается case-insensitively; MIME и расширение должны быть согласованы. Пары заданы в [`BookFormats`](Shared/BookFormats.cs) (BE-013).
+- FB2.ZIP принимается с FB2 Content-Type; число записей и распакованный размер ограничены (BE-012).
 - Любой другой формат → 400.
+- Обложка сохраняется только если декодируется и укладывается в лимиты размеров; иначе — placeholder (BE-014).
 
 Текущее расхождение: [`BookMetadata.Grpc/Services/MetadataService.cs:19–37`](BookMetadata.Grpc/Services/MetadataService.cs#L19-L37) проверяет только MIME, а parser выбирается по расширению ([`MetadataService.cs:41–45`](BookMetadata.Grpc/Services/MetadataService.cs#L41-L45)).
 
@@ -173,11 +174,12 @@
 |---|---|---|
 | Размер файла книги | 100 MiB ([`Shared/UploadLimits.cs:5`](Shared/UploadLimits.cs#L5)) | REST validation; Storage and Metadata (BE-010, BE-012) |
 | Размер multipart-запроса | 110 MiB ([`Shared/UploadLimits.cs:10`](Shared/UploadLimits.cs#L10)) | Kestrel и `FormOptions` в Catalog; gateway env в [`AppHost.cs:47`](BookTracking.AppHost/AppHost.cs#L47) |
+| Размер обложки | 10 MiB | [`CoverValidator`](BookMetadata.Parsers/CoverValidator.cs) (BE-014) |
 | Файлов за запрос | 1 | Контракт `AddBookRequest` |
 | Срок presigned URL | 600 секунд | `SeaweedOptions.PresignedUrlExpirySeconds`; конфигурация применяется (BE-016) |
-| Размер и число ZIP entries | Конфигурируемый лимит | BE-012 |
-| Размеры изображения обложки | Конфигурируемый лимит | BE-014 |
-| Параллельный parsing | Конфигурируемый лимит | BE-012 |
+| Распакованное содержимое архива | 200 MiB, не более 512 записей | [`Fb2Parser`](BookMetadata.Parsers/Fb2Parser.cs), [`LimitedReadStream`](BookMetadata.Parsers/LimitedReadStream.cs) (BE-012) |
+| Размеры изображения обложки | 10 000 px по каждой стороне | [`CoverValidator`](BookMetadata.Parsers/CoverValidator.cs) (BE-014) |
+| Параллельный parsing | 4 одновременных | [`ParserConcurrencyLimiter`](BookMetadata.Grpc/Services/ParserConcurrencyLimiter.cs) (BE-012) |
 
 Значение gateway (110 MiB) дублирует `UploadLimits.MaxRequestSizeBytes`; рассинхронизация должна быть исключена или проверена тестом (BE-010).
 
@@ -516,12 +518,12 @@
 | §5.1, §9.4 (refresh) | BE-007 | Выполнено (этап 2) |
 | §5.4, §9.4 (register race) | BE-008 | Выполнено (этап 2) |
 | §1.2, §5.3 (rate limiting) | BE-009 | Выполнено (этап 2) |
-| §4.2, §8 (Storage limits) | BE-010 | Ожидает |
-| §4.2 (RAM buffering) | BE-011 | Ожидает |
-| §4.2 (Metadata limits) | BE-012 | Ожидает |
-| §4.1 (MIME/extension) | BE-013 | Ожидает |
-| §4.3 (cover validation) | BE-014 | Ожидает |
-| §7 (скрытие ошибок) | BE-015 | Ожидает |
+| §4.2, §8 (Storage limits) | BE-010 | Выполнено (этап 3) |
+| §4.2 (RAM buffering) | BE-011 | Выполнено (этап 3) |
+| §4.2 (Metadata limits) | BE-012 | Выполнено (этап 3) |
+| §4.1 (MIME/extension) | BE-013 | Выполнено (этап 3) |
+| §4.3 (cover validation) | BE-014 | Выполнено (этап 3) |
+| §7 (скрытие ошибок) | BE-015 | Выполнено (этап 3) |
 | §8 (SeaweedOptions) | BE-016 | Выполнено (этап 1) |
 | §9.2–9.3 (compensation) | BE-017 | Ожидает |
 | §9.3 (delete/reconciliation) | BE-018 | Ожидает |

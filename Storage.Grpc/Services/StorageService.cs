@@ -24,13 +24,13 @@ public sealed class StorageService(
     public override Task<UploadResponse> UploadBook(IAsyncStreamReader<FileChunk> request,
         ServerCallContext callContext)
     {
-        return UploadAsync(request, _options.BooksBucketName, callContext);
+        return UploadAsync(request, _options.BooksBucketName, UploadLimits.MaxBookFileSizeBytes, callContext);
     }
 
     public override Task<UploadResponse> UploadCover(IAsyncStreamReader<FileChunk> request,
         ServerCallContext callContext)
     {
-        return UploadAsync(request, _options.CoversBucketName, callContext);
+        return UploadAsync(request, _options.CoversBucketName, UploadLimits.MaxCoverFileSizeBytes, callContext);
     }
 
     public override async Task DownloadFile(DownloadRequest request,
@@ -226,10 +226,11 @@ public sealed class StorageService(
     }
 
     private async Task<UploadResponse> UploadAsync(IAsyncStreamReader<FileChunk> request, string bucketName,
-        ServerCallContext callContext)
+        long maxSizeBytes, ServerCallContext callContext)
     {
         var objectName = string.Empty;
-        
+        var objectUploaded = false;
+
         try
         {
             await EnsureBucketExistsAsync(bucketName, callContext.CancellationToken);
@@ -237,9 +238,13 @@ public sealed class StorageService(
             string? fileName = null;
             string? contentType = null;
 
-            await using var ms = new MemoryStream();
+            // The declared TotalSize is a client hint and is deliberately not trusted:
+            // the limit is enforced against bytes actually received. The buffer is capped
+            // at maxSizeBytes, so a lying or runaway client cannot exhaust memory.
+            await using var ms = new MemoryStream(capacity: (int)Math.Min(maxSizeBytes, 4L * 1024 * 1024));
+            long totalBytes = 0;
 
-            await foreach (var chunk in request.ReadAllAsync())
+            await foreach (var chunk in request.ReadAllAsync(callContext.CancellationToken))
             {
                 if (fileName is null)
                 {
@@ -247,13 +252,37 @@ public sealed class StorageService(
                     contentType = chunk.ContentType;
                 }
 
-                await ms.WriteAsync(chunk.Data.Memory);
+                var data = chunk.Data.Memory;
+                if (data.Length == 0)
+                {
+                    continue;
+                }
+
+                totalBytes += data.Length;
+
+                if (totalBytes > maxSizeBytes)
+                {
+                    logger.LogWarning(
+                        "Rejected upload to bucket {Bucket}: exceeded {Limit} bytes",
+                        bucketName, maxSizeBytes);
+
+                    throw new RpcException(new Status(
+                        StatusCode.ResourceExhausted,
+                        $"File exceeds the maximum allowed size of {maxSizeBytes} bytes."));
+                }
+
+                await ms.WriteAsync(data, callContext.CancellationToken);
+            }
+
+            if (totalBytes == 0)
+            {
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "File is empty."));
             }
 
             ms.Position = 0;
             contentType ??= ContentType.DEFAULT.ToValue();
             fileName ??= string.Empty;
-            
+
             objectName = Guid.CreateVersion7().ToString("N") + Path.GetExtension(fileName);
             var sizeBytes = ms.Length;
 
@@ -265,6 +294,8 @@ public sealed class StorageService(
                 ContentType = contentType
             }, callContext.CancellationToken);
 
+            objectUploaded = true;
+
             var storageFile = new StorageFile
             {
                 BucketName = bucketName,
@@ -274,7 +305,7 @@ public sealed class StorageService(
                 SizeBytes = sizeBytes
             };
 
-            await dbContext.AddAsync(storageFile);
+            await dbContext.AddAsync(storageFile, callContext.CancellationToken);
             await dbContext.SaveChangesAsync(callContext.CancellationToken);
 
             return new UploadResponse
@@ -282,27 +313,54 @@ public sealed class StorageService(
                 FileId = storageFile.Id.ToString()
             };
         }
-        catch (DbUpdateException ex)
+        catch (RpcException)
         {
-            logger.LogError(ex, "Failed to upload file (DB exception).");
+            await TryDeleteUploadedObjectAsync(bucketName, objectName, objectUploaded);
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            await TryDeleteUploadedObjectAsync(bucketName, objectName, objectUploaded);
+            throw;
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to upload file to bucket {Bucket}.", bucketName);
 
-            await client.DeleteObjectAsync(new DeleteObjectRequest
-            {
-                BucketName = bucketName,
-                Key = objectName
-            });
+            await TryDeleteUploadedObjectAsync(bucketName, objectName, objectUploaded);
 
             throw new RpcException(new Status(
                 StatusCode.Internal,
                 "Failed to upload file."));
         }
-        catch (Exception exception)
-        {
-            logger.LogError(exception, "Failed to upload file.");
+    }
 
-            throw new RpcException(new Status(
-                StatusCode.Internal,
-                "Failed to upload file."));
+    /// <summary>
+    /// Removes an object that was written to S3 but whose metadata was not persisted.
+    /// Runs for every failure after the put (DB error, cancellation, unexpected error),
+    /// not just <see cref="DbUpdateException"/>, otherwise the object stays orphaned.
+    /// </summary>
+    private async Task TryDeleteUploadedObjectAsync(string bucketName, string objectName, bool objectUploaded)
+    {
+        if (!objectUploaded || string.IsNullOrEmpty(objectName))
+        {
+            return;
+        }
+
+        try
+        {
+            await client.DeleteObjectAsync(new DeleteObjectRequest
+            {
+                BucketName = bucketName,
+                Key = objectName
+            });
+        }
+        catch (Exception cleanupException)
+        {
+            // The original failure is more important than a failed cleanup; leaving the
+            // object is recoverable, losing the original error is not.
+            logger.LogWarning(cleanupException,
+                "Failed to clean up orphaned object {ObjectName} in bucket {Bucket}", objectName, bucketName);
         }
     }
 

@@ -44,7 +44,7 @@ public class BookParserTests
     {
         var parser = new BookParser();
 
-        Assert.Throws<ArgumentNullException>(() => parser.Parse(null!, new MemoryStream()));
+        Assert.Throws<ArgumentNullException>(() => parser.Parse((string)null!, new MemoryStream()));
     }
 
     [Fact]

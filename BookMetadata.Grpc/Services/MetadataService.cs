@@ -1,9 +1,9 @@
-﻿using BookMetadata.Parsers;
+using BookMetadata.Parsers;
 using ErrorOr;
+using Google.Protobuf;
 using Google.Protobuf.Collections;
 using Grpc.Core;
 using Shared;
-using ContentType = Shared.ContentType;
 using Metadata = Shared.Protos.Metadata;
 using Files = Shared.Protos.Files;
 using MetadataRequest = Shared.Protos.MetadataRequest;
@@ -14,11 +14,11 @@ using BookMetadataModel = BookMetadata.Parsers.BookMetadata;
 
 namespace BookMetadata.Grpc.Services;
 
-public class MetadataService(ILogger<MetadataService> logger, Files.FilesClient filesClient) : Metadata.MetadataBase
+public class MetadataService(
+    ILogger<MetadataService> logger,
+    Files.FilesClient filesClient,
+    ParserConcurrencyLimiter concurrencyLimiter) : Metadata.MetadataBase
 {
-    private readonly List<string> _allowedEbookFormats =
-        [ContentType.PDF.ToValue(), ContentType.EPUB.ToValue(), ContentType.FB2.ToValue()];
-
     public override async Task<MetadataResponse> FetchBookMetadata(
         MetadataRequest request, ServerCallContext context)
     {
@@ -30,31 +30,57 @@ public class MetadataService(ILogger<MetadataService> logger, Files.FilesClient 
         var fileName = request.FileName;
         var contentType = request.ContentType;
 
-        if (!IsAllowedFormat(contentType))
+        // Content-Type and file name arrive as independent client values and the parser is
+        // selected by extension, so a mismatch would run the wrong parser over the file.
+        var format = BookFormats.Resolve(fileName, contentType);
+        if (format is null)
         {
-            logger.LogWarning("Unsupported file format: {ContentType}", contentType);
-            throw new RpcException(new Status(StatusCode.InvalidArgument, $"Unsupported file format: {contentType}"));
+            logger.LogWarning(
+                "Rejected book metadata request: unsupported or inconsistent format {ContentType} / {FileName}",
+                contentType, fileName);
+
+            throw new RpcException(new Status(
+                StatusCode.InvalidArgument,
+                $"Unsupported file format. Expected one of: {BookFormats.DescribeAllowed()}."));
         }
 
+        using var lease = await concurrencyLimiter.AcquireAsync(context.CancellationToken);
+
+        return await ParseWithBudgetAsync(fileId, format, context);
+    }
+
+    private async Task<MetadataResponse> ParseWithBudgetAsync(
+        Guid fileId,
+        BookFormats.Format format,
+        ServerCallContext context)
+    {
         await using var stream = await DownloadBookAsync(fileId, context.CancellationToken);
 
         try
         {
             var parser = new BookParser();
-            var result = parser.Parse(fileName ?? string.Empty, stream);
+            var result = parser.Parse(format, stream);
 
             if (result.IsError)
             {
                 var error = result.FirstError;
-                logger.LogWarning("No parser found for file {FileName}: {ErrorDescription}", fileName, error.Description);
-                throw new RpcException(new Status(MapErrorToStatusCode(error.Type), error.Description));
+
+                // The parser failure is described in the log with full detail; the caller
+                // receives only a stable public message (see PublicErrorFor).
+                logger.LogWarning(
+                    "Failed to parse book {FileId} ({Format}): {ErrorCode} {ErrorDescription}",
+                    fileId, format.Kind, error.Code, error.Description);
+
+                throw new RpcException(new Status(
+                    MapErrorToStatusCode(error.Type),
+                    PublicErrorFor(error.Type)));
             }
 
             var metadata = result.Value;
 
             var coverFileId = await UploadCoverAsync(metadata, context.CancellationToken);
-            
-            var response = new MetadataResponse
+
+            return new MetadataResponse
             {
                 Title = metadata.Title,
                 Authors = { metadata.Authors },
@@ -62,37 +88,67 @@ public class MetadataService(ILogger<MetadataService> logger, Files.FilesClient 
                 PageCount = metadata.PageCount,
                 CoverFileId = coverFileId
             };
-
-            return response;
         }
         catch (RpcException)
         {
             throw;
         }
+        catch (OperationCanceledException) when (context.CancellationToken.IsCancellationRequested)
+        {
+            throw new RpcException(new Status(StatusCode.Cancelled, "Metadata extraction was cancelled."));
+        }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to parse metadata for file {FileName}", fileName);
-            throw new RpcException(new Status(StatusCode.Internal, "Failed to parse metadata"));
+            logger.LogError(ex, "Failed to parse metadata for file {FileId}", fileId);
+            throw new RpcException(new Status(StatusCode.Internal, "Failed to extract book metadata."));
         }
     }
-    
-    private bool IsAllowedFormat(string contentType)
-    {
-        return _allowedEbookFormats.Contains(contentType);
-    }
 
+    /// <summary>
+    /// Maps an internal parser failure to a message safe to return to callers. Parser
+    /// exception text is logged but never echoed, as it leaks library internals.
+    /// </summary>
+    private static string PublicErrorFor(ErrorType errorType) => errorType switch
+    {
+        ErrorType.NotFound => "The file is not a readable book of the declared format.",
+        ErrorType.Validation => "The book file is invalid.",
+        _ => "Failed to extract book metadata."
+    };
+
+    /// <summary>
+    /// Streams the book from Storage into a capped buffer. The buffer is bounded by
+    /// <see cref="UploadLimits.MaxBookFileSizeBytes"/>, so an oversized object cannot
+    /// exhaust memory in this service either.
+    /// </summary>
     private async Task<MemoryStream> DownloadBookAsync(Guid fileId, CancellationToken ct)
     {
         using var call = filesClient.DownloadFile(new DownloadRequest { FileId = fileId.ToString() }, cancellationToken: ct);
 
         var ms = new MemoryStream();
+        long totalBytes = 0;
 
         await foreach (var chunk in call.ResponseStream.ReadAllAsync(ct))
         {
-            if (chunk.Data is not null)
+            if (chunk.Data is null || chunk.Data.Length == 0)
             {
-                await ms.WriteAsync(chunk.Data.Memory, ct);
+                continue;
             }
+
+            totalBytes += chunk.Data.Length;
+
+            if (totalBytes > UploadLimits.MaxBookFileSizeBytes)
+            {
+                throw new RpcException(new Status(
+                    StatusCode.ResourceExhausted,
+                    $"File exceeds the maximum allowed size of {UploadLimits.MaxBookFileSizeBytes} bytes."));
+            }
+
+            await ms.WriteAsync(chunk.Data.Memory, ct);
+        }
+
+        if (totalBytes == 0)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "The stored file is empty."));
         }
 
         ms.Position = 0;
@@ -113,8 +169,20 @@ public class MetadataService(ILogger<MetadataService> logger, Files.FilesClient 
             return string.Empty;
         }
 
+        // Signature bytes are not proof that the image decodes. Validation re-encodes the
+        // image and rejects anything oversized, so a corrupt cover never reaches storage.
+        var validated = CoverValidator.Validate(coverBytes, metadata.CoverContentType);
+        if (validated is null)
+        {
+            logger.LogWarning("Discarded unusable cover image ({Bytes} bytes)", coverBytes.Length);
+            return string.Empty;
+        }
+
+        coverBytes = validated.Bytes;
+        var coverContentType = validated.ContentType;
+
         const int bufferSize = 64 * 1024;
-        var fileName = $"cover.{CoverMimeDetector.GetFileExtension(metadata.CoverContentType)}";
+        var fileName = $"cover.{CoverMimeDetector.GetFileExtension(coverContentType)}";
 
         using var call = filesClient.UploadCover(cancellationToken: ct);
         await using var coverStream = new MemoryStream(coverBytes);
@@ -132,13 +200,13 @@ public class MetadataService(ILogger<MetadataService> logger, Files.FilesClient 
 
             var chunk = new FileChunk
             {
-                Data = Google.Protobuf.ByteString.CopyFrom(buffer, 0, read)
+                Data = ByteString.CopyFrom(buffer, 0, read)
             };
 
             if (first)
             {
                 chunk.FileName = fileName;
-                chunk.ContentType = metadata.CoverContentType;
+                chunk.ContentType = coverContentType;
                 chunk.TotalSize = coverBytes.Length;
                 first = false;
             }

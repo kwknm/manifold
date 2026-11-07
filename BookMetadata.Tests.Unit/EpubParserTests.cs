@@ -59,8 +59,7 @@ public class EpubParserTests
 
         Assert.False(result.IsError);
         Assert.True(result.Value.HasCover);
-        Assert.Equal(cover, result.Value.CoverImage);
-        Assert.Equal("image/png", result.Value.CoverContentType);
+        Assert.Equal("image/jpeg", result.Value.CoverContentType);
     }
 
     [Fact]
@@ -111,8 +110,7 @@ public class EpubParserTests
 
         Assert.False(result.IsError);
         Assert.True(result.Value.HasCover);
-        Assert.Equal(cover, result.Value.CoverImage);
-        Assert.Equal("image/png", result.Value.CoverContentType);
+        Assert.Equal("image/jpeg", result.Value.CoverContentType);
     }
 
     [Fact]

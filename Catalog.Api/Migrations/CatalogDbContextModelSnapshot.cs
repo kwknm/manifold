@@ -63,12 +63,17 @@ namespace Catalog.Api.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId", "FullName")
+                    b.HasIndex("UserId", "NormalizedName")
                         .IsUnique();
 
                     b.ToTable("Authors");

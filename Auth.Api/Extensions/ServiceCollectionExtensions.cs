@@ -16,6 +16,7 @@ public static class ServiceCollectionExtensions
 
         builder.Services.RegisterJwtOptions();
         builder.Services.RegisterPasswordHashingOptions();
+        builder.Services.AddTrustedProxyHeaders(builder.Configuration);
         builder.Services.AddAuthRateLimiting(builder.Configuration);
         builder.Services.AddJwtAuthentication(builder.Configuration);
         builder.Services.AddAuthorization();

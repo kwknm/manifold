@@ -13,6 +13,9 @@ var app = builder.Build();
 
 app.ApplyMigrations<AuthDbContext>();
 
+// Must precede the rate limiter: it partitions on Connection.RemoteIpAddress.
+app.UseTrustedProxyHeaders();
+
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 

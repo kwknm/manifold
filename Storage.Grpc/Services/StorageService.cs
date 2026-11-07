@@ -258,9 +258,10 @@ public sealed class StorageService(
             string? contentType = null;
 
             // The declared TotalSize is a client hint and is deliberately not trusted:
-            // the limit is enforced against bytes actually received. The buffer is capped
-            // at maxSizeBytes, so a lying or runaway client cannot exhaust memory.
-            await using var ms = new MemoryStream(capacity: (int)Math.Min(maxSizeBytes, 4L * 1024 * 1024));
+            // the limit is enforced against bytes actually received. The payload is spooled to
+            // a temp file rather than a MemoryStream so that concurrent uploads of up to
+            // maxSizeBytes each do not stack up on the managed heap.
+            await using var spool = SpoolFile.Create();
             long totalBytes = 0;
 
             await foreach (var chunk in request.ReadAllAsync(callContext.CancellationToken))
@@ -290,7 +291,7 @@ public sealed class StorageService(
                         $"File exceeds the maximum allowed size of {maxSizeBytes} bytes."));
                 }
 
-                await ms.WriteAsync(data, callContext.CancellationToken);
+                await spool.WriteAsync(data, callContext.CancellationToken);
             }
 
             if (totalBytes == 0)
@@ -298,18 +299,18 @@ public sealed class StorageService(
                 throw new RpcException(new Status(StatusCode.InvalidArgument, "File is empty."));
             }
 
-            ms.Position = 0;
+            spool.Position = 0;
             contentType ??= ContentType.DEFAULT.ToValue();
             fileName ??= string.Empty;
 
             objectName = Guid.CreateVersion7().ToString("N") + Path.GetExtension(fileName);
-            var sizeBytes = ms.Length;
+            var sizeBytes = totalBytes;
 
             await client.PutObjectAsync(new PutObjectRequest
             {
                 BucketName = bucketName,
                 Key = objectName,
-                InputStream = ms,
+                InputStream = spool,
                 ContentType = contentType
             }, callContext.CancellationToken);
 

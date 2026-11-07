@@ -44,34 +44,56 @@ public class FilesClient(Files.FilesClient client) : IFilesClient
     {
         using var call = client.DownloadFile(new DownloadRequest { FileId = fileId.ToString() }, cancellationToken: ct);
 
-        var ms = new MemoryStream();
-        var fileName = string.Empty;
-        var contentType = ContentType.DEFAULT.ToValue();
-        var totalSize = 0L;
-        var first = true;
+        // A book is up to UploadLimits.MaxBookFileSizeBytes, so the payload is spooled to a
+        // temp file and capped while it is received instead of growing an in-memory buffer.
+        var spool = SpoolFile.Create();
 
-        await foreach (var chunk in call.ResponseStream.ReadAllAsync(ct))
+        try
         {
-            if (first)
+            var fileName = string.Empty;
+            var contentType = ContentType.DEFAULT.ToValue();
+            var totalSize = 0L;
+            var first = true;
+            long receivedBytes = 0;
+
+            await foreach (var chunk in call.ResponseStream.ReadAllAsync(ct))
             {
-                fileName = chunk.FileName;
-                if (!string.IsNullOrEmpty(chunk.ContentType))
+                if (first)
                 {
-                    contentType = chunk.ContentType;
+                    fileName = chunk.FileName;
+                    if (!string.IsNullOrEmpty(chunk.ContentType))
+                    {
+                        contentType = chunk.ContentType;
+                    }
+
+                    totalSize = chunk.TotalSize;
+                    first = false;
                 }
 
-                totalSize = chunk.TotalSize;
-                first = false;
+                if (chunk.Data is not null)
+                {
+                    receivedBytes += chunk.Data.Length;
+
+                    if (receivedBytes > UploadLimits.MaxBookFileSizeBytes)
+                    {
+                        throw new RpcException(new Status(
+                            StatusCode.ResourceExhausted,
+                            $"File exceeds the maximum allowed size of {UploadLimits.MaxBookFileSizeBytes} bytes."));
+                    }
+
+                    await spool.WriteAsync(chunk.Data.Memory, ct);
+                }
             }
 
-            if (chunk.Data is not null)
-            {
-                await ms.WriteAsync(chunk.Data.Memory, ct);
-            }
+            spool.Position = 0;
+
+            return new DownloadedFile(spool, fileName, contentType, totalSize);
         }
-
-        ms.Position = 0;
-        return new DownloadedFile(ms, fileName, contentType, totalSize);
+        catch
+        {
+            await spool.DisposeAsync();
+            throw;
+        }
     }
 
     public async Task DeleteFileAsync(Guid fileId, CancellationToken ct = default)

@@ -116,43 +116,54 @@ public class MetadataService(
     };
 
     /// <summary>
-    /// Streams the book from Storage into a capped buffer. The buffer is bounded by
-    /// <see cref="UploadLimits.MaxBookFileSizeBytes"/>, so an oversized object cannot
-    /// exhaust memory in this service either.
+    /// Streams the book from Storage into a size-capped temp file. The cap is enforced against
+    /// bytes actually received, so an oversized object is rejected; spooling to disk instead of
+    /// a <see cref="MemoryStream"/> keeps the memory of the service flat while several parses
+    /// (<see cref="UploadLimits.MaxConcurrentMetadataParses"/>) hold a book each.
     /// </summary>
-    private async Task<MemoryStream> DownloadBookAsync(Guid fileId, CancellationToken ct)
+    private async Task<FileStream> DownloadBookAsync(Guid fileId, CancellationToken ct)
     {
         using var call = filesClient.DownloadFile(new DownloadRequest { FileId = fileId.ToString() }, cancellationToken: ct);
 
-        var ms = new MemoryStream();
-        long totalBytes = 0;
+        var spool = SpoolFile.Create();
 
-        await foreach (var chunk in call.ResponseStream.ReadAllAsync(ct))
+        try
         {
-            if (chunk.Data is null || chunk.Data.Length == 0)
+            long totalBytes = 0;
+
+            await foreach (var chunk in call.ResponseStream.ReadAllAsync(ct))
             {
-                continue;
+                if (chunk.Data is null || chunk.Data.Length == 0)
+                {
+                    continue;
+                }
+
+                totalBytes += chunk.Data.Length;
+
+                if (totalBytes > UploadLimits.MaxBookFileSizeBytes)
+                {
+                    throw new RpcException(new Status(
+                        StatusCode.ResourceExhausted,
+                        $"File exceeds the maximum allowed size of {UploadLimits.MaxBookFileSizeBytes} bytes."));
+                }
+
+                await spool.WriteAsync(chunk.Data.Memory, ct);
             }
 
-            totalBytes += chunk.Data.Length;
-
-            if (totalBytes > UploadLimits.MaxBookFileSizeBytes)
+            if (totalBytes == 0)
             {
-                throw new RpcException(new Status(
-                    StatusCode.ResourceExhausted,
-                    $"File exceeds the maximum allowed size of {UploadLimits.MaxBookFileSizeBytes} bytes."));
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "The stored file is empty."));
             }
 
-            await ms.WriteAsync(chunk.Data.Memory, ct);
-        }
+            spool.Position = 0;
 
-        if (totalBytes == 0)
+            return spool;
+        }
+        catch
         {
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "The stored file is empty."));
+            await spool.DisposeAsync();
+            throw;
         }
-
-        ms.Position = 0;
-        return ms;
     }
 
     private async Task<string> UploadCoverAsync(BookMetadataModel metadata, CancellationToken ct)

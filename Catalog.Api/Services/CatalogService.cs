@@ -278,20 +278,30 @@ public class CatalogService(ILogger<CatalogService> logger, CatalogDbContext con
 
     /// <summary>
     /// Second attempt after an author unique-violation race. The losing transaction is
-    /// discarded, authors are re-resolved against the now-committed winner, and the book
-    /// is saved again.
+    /// discarded, authors and tags are re-resolved against the now-committed winner, and the
+    /// book is saved again.
     /// </summary>
     private async Task<ErrorOr<BookResponse>> RetryAddBookAsync(Book failedBook, string title, Guid userId,
         CancellationToken ct)
     {
-        var entry = context.Entry(failedBook);
-        if (entry.State != EntityState.Detached)
+        // A failed SaveChanges leaves the attempt's entities in the tracker — including Authors
+        // still marked Added. Detaching only the book would leave those authors tracking, and the
+        // retry would re-insert them and hit the very same unique violation. The plain data is
+        // captured first, then the tracker is emptied and everything is resolved from the
+        // database so the retry sees the winner's rows instead of this attempt's orphans.
+        var authorNames = failedBook.Authors.Select(a => a.FullName).ToList();
+        var tagIds = failedBook.Tags.Select(t => t.Id).ToList();
+
+        context.ChangeTracker.Clear();
+
+        var tagsResult = await ResolveTagsAsync(tagIds, userId, ct);
+
+        if (tagsResult.IsError)
         {
-            entry.State = EntityState.Detached;
+            return tagsResult.Errors;
         }
 
-        var authors = await ResolveAuthorsAsync(failedBook.Authors.Select(a => a.FullName), userId, ct);
-        var tags = failedBook.Tags.ToList();
+        var authors = await ResolveAuthorsAsync(authorNames, userId, ct);
 
         var book = new Book
         {
@@ -301,7 +311,7 @@ public class CatalogService(ILogger<CatalogService> logger, CatalogDbContext con
             CoverFileId = failedBook.CoverFileId,
             UserId = failedBook.UserId,
             Authors = authors,
-            Tags = tags
+            Tags = tagsResult.Value
         };
 
         try
@@ -337,20 +347,38 @@ public class CatalogService(ILogger<CatalogService> logger, CatalogDbContext con
     private async Task<List<Author>> ResolveAuthorsAsync(IEnumerable<string> names, Guid userId,
         CancellationToken ct)
     {
-        var normalized = BookMetadataNormalizer.NormalizeAuthors(names).ToList();
+        // Author identity is the folded key, not the displayed name: the database comparison
+        // and the unique index must both ignore casing, otherwise "Толстой" and "толстой"
+        // become two rows that no later lookup can join.
+        var candidates = BookMetadataNormalizer.NormalizeAuthors(names)
+            .Select(name => (Key: BookMetadataNormalizer.NormalizeAuthorKey(name), Name: name))
+            .GroupBy(candidate => candidate.Key, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .ToList();
 
-        if (normalized.Count == 0)
+        if (candidates.Count == 0)
         {
             return [];
         }
 
+        var keys = candidates.Select(candidate => candidate.Key).ToArray();
+
         var existingAuthors = await context.Authors
-            .Where(a => a.UserId == userId && normalized.Contains(a.FullName))
+            .Where(a => a.UserId == userId && keys.Contains(a.NormalizedName))
             .ToListAsync(ct);
 
-        var newAuthors = normalized
-            .Except(existingAuthors.Select(a => a.FullName), StringComparer.Ordinal)
-            .Select(name => new Author { FullName = name, UserId = userId })
+        var existingKeys = existingAuthors
+            .Select(a => a.NormalizedName)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var newAuthors = candidates
+            .Where(candidate => !existingKeys.Contains(candidate.Key))
+            .Select(candidate => new Author
+            {
+                FullName = candidate.Name,
+                NormalizedName = candidate.Key,
+                UserId = userId
+            })
             .ToList();
 
         if (newAuthors.Count > 0)

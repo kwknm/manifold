@@ -31,6 +31,12 @@ public class EpubParser : IBookParser
 
         try
         {
+            // Guards against zip bombs before the reader expands the archive into memory.
+            if (EpubArchiveGuard.Validate(stream) is { } archiveError)
+            {
+                return archiveError;
+            }
+
             var book = EpubReader.ReadBook(stream, ReaderOptions);
             if (book is null)
             {

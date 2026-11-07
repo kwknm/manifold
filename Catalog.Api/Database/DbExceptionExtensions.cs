@@ -11,7 +11,7 @@ public static class DbExceptionExtensions
     private const string UniqueViolationSqlState = "23505";
 
     public const string TagNameIndexName = "IX_Tags_UserId_Name";
-    public const string AuthorNameIndexName = "IX_Authors_UserId_FullName";
+    public const string AuthorNameIndexName = "IX_Authors_UserId_NormalizedName";
 
     /// <summary>
     /// Detects a unique violation on a specific constraint. The constraint is named by the

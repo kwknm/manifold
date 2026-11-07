@@ -1,7 +1,9 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using Microsoft.EntityFrameworkCore;
 
 namespace Catalog.Api.Database.Entities;
 
+[Index(nameof(UserId), nameof(FullName), IsUnique = true)]
 public class Author
 {
     public Guid Id { get; set; }

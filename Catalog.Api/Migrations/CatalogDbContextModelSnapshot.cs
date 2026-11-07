@@ -68,6 +68,9 @@ namespace Catalog.Api.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("UserId", "FullName")
+                        .IsUnique();
+
                     b.ToTable("Authors");
                 });
 

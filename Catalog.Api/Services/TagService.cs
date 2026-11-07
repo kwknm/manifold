@@ -33,6 +33,15 @@ public class TagService(ILogger<TagService> logger, CatalogDbContext context) : 
 
             return new TagResponse(tag);
         }
+        catch (DbUpdateException ex) when (ex.IsUniqueViolationOn(DbExceptionExtensions.TagNameIndexName))
+        {
+            // Lost the race against a concurrent create of the same name; the unique index
+            // is the source of truth and the caller sees the declared conflict.
+            logger.LogInformation(
+                "Concurrent tag creation for name {Name} and user {UserId} rejected by unique index", name, userId);
+
+            return CatalogErrors.Tag.AlreadyExists;
+        }
         catch (DbUpdateException ex)
         {
             logger.LogError(ex, "Failed to create tag with name {Name} for user {UserId}", name, userId);
@@ -79,6 +88,13 @@ public class TagService(ILogger<TagService> logger, CatalogDbContext context) : 
         try
         {
             await context.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.IsUniqueViolationOn(DbExceptionExtensions.TagNameIndexName))
+        {
+            logger.LogInformation(
+                "Concurrent tag update for tag {TagId} and user {UserId} rejected by unique index", tagId, userId);
+
+            return CatalogErrors.Tag.AlreadyExists;
         }
         catch (DbUpdateException ex)
         {

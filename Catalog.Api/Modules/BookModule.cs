@@ -68,6 +68,7 @@ public class BookModule : ICarterModule
         }
 
         Guid? coverFileId = null;
+        var bookCommitted = false;
 
         try
         {
@@ -89,9 +90,11 @@ public class BookModule : ICarterModule
                 coverFileId = parsedCoverId;
             }
 
-            var title = !string.IsNullOrEmpty(metadata.Title) ? metadata.Title : "Unknown";
-            var authors = metadata.Authors.ToArray();
-            var isbn = !string.IsNullOrEmpty(metadata.Isbn) ? metadata.Isbn : null;
+            // Metadata comes from the file, so lengths are not client-controlled and must be
+            // normalized to the schema limits instead of failing the upload (contract D-13).
+            var title = NormalizeTitle(metadata.Title, logger);
+            var authors = BookMetadataNormalizer.NormalizeAuthors(metadata.Authors).ToArray();
+            var isbn = NormalizeIsbn(metadata.Isbn, logger);
 
             var result = await service.AddBookAsync(
                 title,
@@ -109,17 +112,21 @@ public class BookModule : ICarterModule
                 return result.MapToResponseAsync(Results.Ok);
             }
 
+            // From this point the book exists and owns its files; only a failure before the
+            // commit may still delete them (see the catch blocks below).
+            bookCommitted = true;
+
             return Results.Created($"/books/{result.Value.Id}", result.Value);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            await DeleteFilesAsync(filesClient, [fileId, coverFileId], logger);
+            await RollbackUploadAsync(bookCommitted, filesClient, fileId, coverFileId, logger);
             throw;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to add a book for user {UserId}", userId);
-            await DeleteFilesAsync(filesClient, [fileId, coverFileId], logger);
+            await RollbackUploadAsync(bookCommitted, filesClient, fileId, coverFileId, logger);
 
             return Results.Problem(
                 title: "Failed to add book",
@@ -201,6 +208,47 @@ public class BookModule : ICarterModule
             .Select(Guid.Parse)
             .Distinct()
             .ToArray();
+    }
+
+    private static string NormalizeTitle(string? rawTitle, ILogger logger)
+    {
+        if (BookMetadataNormalizer.ExceedsTitleLimit(rawTitle))
+        {
+            logger.LogWarning("Book title exceeded {Limit} characters and was truncated",
+                BookMetadataNormalizer.MaxTitleLength);
+        }
+
+        return BookMetadataNormalizer.NormalizeTitle(rawTitle);
+    }
+
+    private static string? NormalizeIsbn(string? rawIsbn, ILogger logger)
+    {
+        if (BookMetadataNormalizer.ExceedsIsbnLimit(rawIsbn))
+        {
+            logger.LogWarning("Book ISBN exceeded {Limit} characters and was truncated",
+                BookMetadataNormalizer.MaxIsbnLength);
+        }
+
+        return BookMetadataNormalizer.NormalizeIsbn(rawIsbn);
+    }
+
+    /// <summary>
+    /// Compensates a failed upload by deleting the files written during this request.
+    /// A committed book keeps its files: deleting them would leave a catalog entry
+    /// pointing at objects that no longer exist.
+    /// </summary>
+    private static async Task RollbackUploadAsync(bool bookCommitted, IFilesClient filesClient, Guid fileId,
+        Guid? coverFileId, ILogger logger)
+    {
+        if (bookCommitted)
+        {
+            logger.LogWarning(
+                "Upload for book file {FileId} failed after the book was saved; keeping files to avoid a dangling reference",
+                fileId);
+            return;
+        }
+
+        await DeleteFilesAsync(filesClient, [fileId, coverFileId], logger);
     }
 
     private static async Task DeleteFilesAsync(IFilesClient filesClient, IEnumerable<Guid?> fileIds,

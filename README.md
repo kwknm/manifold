@@ -106,7 +106,7 @@ All catalog endpoints require a `Bearer` access token.
 
 ## gRPC contracts (`Shared.Protos`)
 
-- `files.proto` — service `Files`: `UploadBook`, `UploadCover` (streaming upload), `DownloadFile` (streaming download), `DeleteFile`
+- `files.proto` — service `Files`: `UploadBook`, `UploadCover` (streaming upload), `DownloadFile` (streaming download), `DeleteFile`, `GetPresignedUrl`, `GetPresignedUrls`
 - `metadata.proto` — service `Metadata`: `FetchBookMetadata` (metadata + cover extraction)
 
 ## Getting started

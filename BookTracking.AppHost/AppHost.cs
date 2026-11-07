@@ -2,6 +2,10 @@ using Aspire.Hosting.Yarp.Transforms;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
+// Project resources must see the same environment as the AppHost so that
+// Development runs load user secrets (Jwt:SecretKey for Auth and Catalog).
+var environmentName = builder.Environment.EnvironmentName;
+
 var postgres = builder.AddPostgres("postgres")
     .WithDataVolume()
     .WithPgWeb(p => p.WithHostPort(5050));
@@ -17,9 +21,13 @@ var seaweedS3 = builder.AddSeaweedFS("seaweedfs")
 var authService = builder.AddProject<Projects.Auth_Api>("auth")
     .WithReference(usersDb)
     .WaitFor(usersDb)
+    .WithEnvironment("ASPNETCORE_ENVIRONMENT", environmentName)
+    .WithEnvironment("DOTNET_ENVIRONMENT", environmentName)
     .WithHttpHealthCheck("/health")
     .WithExternalHttpEndpoints();
 
+// Trust boundary (MVP-CONTRACT §2): storage and bookmetadata are internal-only.
+// Do not add .WithExternalHttpEndpoints() to these resources.
 var storageService = builder.AddProject<Projects.Storage_Grpc>("storage")
     .WithReference(storageDb)
     .WaitFor(storageDb)
@@ -37,6 +45,8 @@ var catalogService = builder.AddProject<Projects.Catalog_Api>("catalog")
     .WaitFor(storageService)
     .WithReference(bookMetadataService)
     .WaitFor(bookMetadataService)
+    .WithEnvironment("ASPNETCORE_ENVIRONMENT", environmentName)
+    .WithEnvironment("DOTNET_ENVIRONMENT", environmentName)
     .WithHttpHealthCheck("/health")
     .WithExternalHttpEndpoints();
 

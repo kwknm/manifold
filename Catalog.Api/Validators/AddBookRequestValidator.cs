@@ -1,4 +1,4 @@
-﻿using Catalog.Api.Contracts;
+using Catalog.Api.Contracts;
 using FluentValidation;
 using Shared;
 
@@ -6,11 +6,6 @@ namespace Catalog.Api.Validators;
 
 public class AddBookRequestValidator : AbstractValidator<AddBookRequest>
 {
-    private readonly string[] _allowedTypes =
-    [
-        ContentType.PDF.ToValue(), ContentType.EPUB.ToValue(), ContentType.FB2.ToValue()
-    ];
-
     public AddBookRequestValidator()
     {
         RuleFor(x => x.File)
@@ -22,8 +17,10 @@ public class AddBookRequestValidator : AbstractValidator<AddBookRequest>
                 .WithMessage("File cannot be empty")
             .Must(file => file.Length <= UploadLimits.MaxBookFileSizeBytes)
                 .WithMessage("File size must not exceed 100MB")
-            .Must(file => _allowedTypes.Contains(file.ContentType, StringComparer.OrdinalIgnoreCase))
-                .WithMessage("File must be PDF, EPUB, or FB2")
+            // Content type and extension must agree: the metadata service selects the parser
+            // by extension, so a mismatch would run the wrong parser on the file.
+            .Must(file => BookFormats.Resolve(file.FileName, file.ContentType) is not null)
+                .WithMessage($"File must be one of: {BookFormats.DescribeAllowed()}")
             .When(x => x.File is not null);
 
         RuleFor(x => x.TagIds)

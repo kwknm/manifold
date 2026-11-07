@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Xml.Linq;
 using ErrorOr;
+using Shared;
 
 namespace BookMetadata.Parsers;
 
@@ -50,6 +51,13 @@ public class Fb2Parser : IBookParser
     {
         using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
 
+        if (archive.Entries.Count > UploadLimits.MaxArchiveEntries)
+        {
+            return Error.Validation(
+                code: "BookMetadata.ArchiveTooManyEntries",
+                description: $"Archive contains more than {UploadLimits.MaxArchiveEntries} entries.");
+        }
+
         var entry = archive.Entries.FirstOrDefault(e =>
             e.FullName.EndsWith(".fb2", StringComparison.OrdinalIgnoreCase));
 
@@ -60,8 +68,19 @@ public class Fb2Parser : IBookParser
                 description: "No .fb2 entry found in archive.");
         }
 
+        // The declared entry length is a header value and cannot be trusted: a small archive
+        // can expand into gigabytes. The stream is therefore capped while reading.
+        if (entry.Length > UploadLimits.MaxExpandedArchiveBytes)
+        {
+            return Error.Validation(
+                code: "BookMetadata.ArchiveEntryTooLarge",
+                description: $"Archive entry exceeds {UploadLimits.MaxExpandedArchiveBytes} bytes.");
+        }
+
         using var entryStream = entry.Open();
-        return ParseXml(entryStream);
+        using var limited = new LimitedReadStream(entryStream, UploadLimits.MaxExpandedArchiveBytes);
+
+        return ParseXml(limited);
     }
 
     private static ErrorOr<BookMetadata> ParseXml(Stream stream)
@@ -98,11 +117,17 @@ public class Fb2Parser : IBookParser
     {
         var coverBytes = ExtractCoverBytes(root, ns, titleInfo);
         var coverMime = CoverMimeDetector.Detect(coverBytes);
+        var validated = coverMime is null ? null : CoverValidator.Validate(coverBytes, coverMime);
 
-        if (coverMime is null)
+        if (validated is null)
         {
             coverBytes = PlaceholderCoverGenerator.Create(result.Title, result.Author);
             coverMime = CoverMimeDetector.Jpeg;
+        }
+        else
+        {
+            coverBytes = validated.Bytes;
+            coverMime = validated.ContentType;
         }
 
         result.CoverImage = coverBytes;

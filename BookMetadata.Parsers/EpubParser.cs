@@ -80,10 +80,18 @@ public class EpubParser : IBookParser
         }
 
         var coverMime = CoverMimeDetector.Detect(coverBytes);
-        if (coverMime is null)
+        var validated = coverMime is null ? null : CoverValidator.Validate(coverBytes, coverMime);
+
+        if (validated is null)
         {
+            // Either the bytes are not a raster image or they do not decode as one.
             coverBytes = PlaceholderCoverGenerator.Create(result.Title, result.Author);
             coverMime = CoverMimeDetector.Jpeg;
+        }
+        else
+        {
+            coverBytes = validated.Bytes;
+            coverMime = validated.ContentType;
         }
 
         result.CoverImage = coverBytes;
@@ -121,10 +129,27 @@ public class EpubParser : IBookParser
     {
         const int charsPerPage = 2500;
 
-        var totalChars = book.Content.Html.Local
-            .Select(f => f.Content)
-            .Where(c => !string.IsNullOrWhiteSpace(c))
-            .Sum(c => StripHtml(c).Length);
+        // Page count is an estimate and not worth unbounded work: stop once the running
+        // total is large enough that further documents cannot change the result materially.
+        const long maxCountedChars = 2500L * 20_000;
+
+        long totalChars = 0;
+
+        foreach (var file in book.Content.Html.Local)
+        {
+            if (string.IsNullOrWhiteSpace(file.Content))
+            {
+                continue;
+            }
+
+            totalChars += StripHtml(file.Content).Length;
+
+            if (totalChars >= maxCountedChars)
+            {
+                totalChars = maxCountedChars;
+                break;
+            }
+        }
 
         return totalChars > 0 ? (int)Math.Ceiling(totalChars / (double)charsPerPage) : 0;
     }

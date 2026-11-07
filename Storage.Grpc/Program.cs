@@ -4,6 +4,7 @@ using Storage.Grpc.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.RegisterOptions();
 builder.AddDatabase();
 builder.Services.AddGrpc();
 builder.AddSeaweedFsClient();

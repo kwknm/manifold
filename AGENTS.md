@@ -25,6 +25,7 @@
 - `Storage.Grpc` and `BookMetadata.Grpc` are internal-only; `BookTracking.AppHost/AppHost.cs` deliberately does not call `WithExternalHttpEndpoints()` for them. Do not expose these resources externally.
 - REST pattern: Carter modules (`Modules/*Module.cs`), FluentValidation validators auto-registered from assembly, `ErrorOr` result types; `RpcException` → HTTP ProblemDetails via `Catalog.Api/Extensions/RpcExtensions.cs`.
 - `Shared/Clients/*` (e.g. `FilesClient`) wraps the generated gRPC clients and streams uploads in 32 KB chunks — services depend on `IFilesClient`/`IMetadataClient`, not generated clients directly.
+- `Auth.Api` applies per-IP fixed-window rate limiting to `/register`, `/login` and `/refresh` (`AuthRateLimiting` section, `Enabled=false` disables it for tests). Logout is intentionally not limited.
 - JWT options (`Jwt` section) use `ValidateOnStart()` with `SecretKey` min 32 chars; any service calling `AddJwtAuthentication` fails fast without it. The signing key is not stored in `appsettings.json`. In Development it is loaded from user secrets (`Jwt:SecretKey`; set the same value in `Auth.Api` and `Catalog.Api`), and `AppHost` propagates its environment to project resources. Deployments must supply `Jwt__SecretKey` via environment or a secret store.
 
 ## Docs

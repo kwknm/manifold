@@ -1,4 +1,4 @@
-﻿# Manifold – upload, read, and track your e-book library
+# Manifold – upload, read, and track your e-book library
 
 Manifold is a backend for an e-book library built with a microservice architecture. Users can upload books (EPUB, FB2, PDF), automatically extract metadata (title, author, ISBN, page count, cover), store files in object storage, and maintain a personal catalog with tags.
 
@@ -145,6 +145,8 @@ dotnet user-secrets set "Jwt:SecretKey" $secret --project Catalog.Api
 In deployment, provide `Jwt__SecretKey` through the environment or a secret store; user secrets are local-development only.
 
 Set `Seaweed__PresignedUrlUseHttps=true` outside local development; local SeaweedFS runs without TLS, so the default is `false`.
+
+`Auth.Api` rate limits `/register`, `/login` and `/refresh` per client IP (fixed window, `AuthRateLimiting` section). Exceeding a limit returns `429` with a `Retry-After` header. Set `AuthRateLimiting__Enabled=false` only for local debugging or integration tests.
 
 ### Example: adding a book
 

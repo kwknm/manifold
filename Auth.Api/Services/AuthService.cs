@@ -13,8 +13,14 @@ public sealed class AuthService(
     AuthDbContext dbContext,
     IPasswordHasher passwordHasher,
     ITokenService tokenService,
-    IOptions<JwtOptions> jwtOptions) : IAuthService
+    IOptions<JwtOptions> jwtOptions,
+    ILogger<AuthService> logger) : IAuthService
 {
+    /// <summary>
+    /// EF Core default name for the unique index on Users.Email (see the Initial migration).
+    /// </summary>
+    private const string UserEmailIndexName = "IX_Users_Email";
+
     private readonly JwtOptions _jwtOptions = jwtOptions.Value;
 
     public async Task<ErrorOr<AuthResponse>> RegisterAsync(
@@ -24,6 +30,7 @@ public sealed class AuthService(
         var email = request.Email.Trim().ToLowerInvariant();
         var userName = request.UserName.Trim();
 
+        // Fast path: gives a clean conflict without touching the unique index.
         var emailExists = await dbContext.Users
             .AnyAsync(u => u.Email == email, cancellationToken);
 
@@ -43,7 +50,18 @@ public sealed class AuthService(
         dbContext.Users.Add(user);
 
         var response = IssueTokens(user, familyId: Guid.NewGuid());
-        await dbContext.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (ex.IsUniqueViolationOn(UserEmailIndexName))
+        {
+            // Lost the race against a concurrent registration of the same email;
+            // the unique index is the source of truth.
+            logger.LogInformation("Concurrent registration for email {Email} rejected by unique index", email);
+            return AuthErrors.User.EmailAlreadyExists;
+        }
 
         return response;
     }
@@ -73,10 +91,12 @@ public sealed class AuthService(
         CancellationToken cancellationToken = default)
     {
         var tokenHash = tokenService.HashRefreshToken(request.RefreshToken);
+        var now = DateTimeOffset.UtcNow;
 
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-
+        // Read the token together with its owner. No transaction is needed here: the
+        // rotation itself is guarded by the atomic consume below.
         var existingToken = await dbContext.RefreshTokens
+            .AsNoTracking()
             .Include(t => t.User)
             .FirstOrDefaultAsync(t => t.TokenHash == tokenHash, cancellationToken);
 
@@ -85,32 +105,41 @@ public sealed class AuthService(
             return AuthErrors.RefreshToken.Invalid;
         }
 
-        // Refresh token reuse detection: a revoked token presented again
-        // means the token was likely stolen — revoke the whole family.
+        // A revoked token presented again means the token was likely stolen.
+        // This must be checked before the atomic consume, otherwise the second
+        // concurrent request would see a revoked token and report plain invalid.
         if (existingToken.IsRevoked)
         {
             await RevokeTokenFamilyAsync(existingToken.FamilyId, cancellationToken);
-            await dbContext.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-
             return AuthErrors.RefreshToken.ReuseDetected;
         }
 
         if (existingToken.IsExpired)
         {
-            existingToken.RevokedAt = DateTimeOffset.UtcNow;
-            await dbContext.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-
+            await RevokeExpiredTokenAsync(existingToken.Id, now, cancellationToken);
             return AuthErrors.RefreshToken.Expired;
         }
 
         var rawRefreshToken = tokenService.GenerateRefreshToken();
         var newTokenHash = tokenService.HashRefreshToken(rawRefreshToken);
-        var refreshExpiresAt = DateTimeOffset.UtcNow.AddDays(_jwtOptions.RefreshTokenLifetimeDays);
+        var refreshExpiresAt = now.AddDays(_jwtOptions.RefreshTokenLifetimeDays);
 
-        existingToken.RevokedAt = DateTimeOffset.UtcNow;
-        existingToken.ReplacedByTokenHash = newTokenHash;
+        // Atomically claim the token: only a request that still sees RevokedAt == null
+        // may rotate it. Concurrent refreshes therefore cannot both succeed.
+        var claimed = await dbContext.RefreshTokens
+            .Where(t => t.Id == existingToken.Id && t.RevokedAt == null)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(t => t.RevokedAt, now)
+                    .SetProperty(t => t.ReplacedByTokenHash, newTokenHash),
+                cancellationToken);
+
+        if (claimed == 0)
+        {
+            // Another request consumed this token first. Treat it as replay.
+            await RevokeTokenFamilyAsync(existingToken.FamilyId, cancellationToken);
+            return AuthErrors.RefreshToken.ReuseDetected;
+        }
 
         var replacement = new RefreshToken
         {
@@ -118,16 +147,25 @@ public sealed class AuthService(
             UserId = existingToken.UserId,
             TokenHash = newTokenHash,
             FamilyId = existingToken.FamilyId,
-            CreatedAt = DateTimeOffset.UtcNow,
+            CreatedAt = now,
             ExpiresAt = refreshExpiresAt
         };
 
         dbContext.RefreshTokens.Add(replacement);
 
-        var access = tokenService.CreateAccessToken(existingToken.User);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex)
+        {
+            // The consume above already revoked the presented token, so the caller must
+            // retry with a fresh login rather than reuse a token that no longer rotates.
+            logger.LogError(ex, "Failed to persist rotated refresh token for user {UserId}", existingToken.UserId);
+            return AuthErrors.RefreshToken.Invalid;
+        }
 
-        await dbContext.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        var access = tokenService.CreateAccessToken(existingToken.User);
 
         return new AuthResponse(
             access.Token,
@@ -142,19 +180,12 @@ public sealed class AuthService(
     {
         var tokenHash = tokenService.HashRefreshToken(request.RefreshToken);
 
-        var existingToken = await dbContext.RefreshTokens
-            .FirstOrDefaultAsync(t => t.TokenHash == tokenHash, cancellationToken);
-
-        if (existingToken is null)
-        {
-            return Result.Success;
-        }
-
-        if (!existingToken.IsRevoked)
-        {
-            existingToken.RevokedAt = DateTimeOffset.UtcNow;
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }
+        // Revocation is idempotent and never reports whether the token existed.
+        await dbContext.RefreshTokens
+            .Where(t => t.TokenHash == tokenHash && t.RevokedAt == null)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(t => t.RevokedAt, DateTimeOffset.UtcNow),
+                cancellationToken);
 
         return Result.Success;
     }
@@ -190,6 +221,15 @@ public sealed class AuthService(
 
         await dbContext.RefreshTokens
             .Where(t => t.FamilyId == familyId && t.RevokedAt == null)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(t => t.RevokedAt, now),
+                cancellationToken);
+    }
+
+    private async Task RevokeExpiredTokenAsync(Guid tokenId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await dbContext.RefreshTokens
+            .Where(t => t.Id == tokenId && t.RevokedAt == null)
             .ExecuteUpdateAsync(
                 setters => setters.SetProperty(t => t.RevokedAt, now),
                 cancellationToken);

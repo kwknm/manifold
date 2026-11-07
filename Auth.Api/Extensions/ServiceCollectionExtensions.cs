@@ -1,5 +1,4 @@
 using Auth.Api.Database;
-using Auth.Api.Options;
 using Auth.Api.Services;
 using Carter;
 using FluentValidation;
@@ -16,6 +15,8 @@ public static class ServiceCollectionExtensions
         builder.Services.AddCarter();
 
         builder.Services.RegisterJwtOptions();
+        builder.Services.RegisterPasswordHashingOptions();
+        builder.Services.AddAuthRateLimiting(builder.Configuration);
         builder.Services.AddJwtAuthentication(builder.Configuration);
         builder.Services.AddAuthorization();
 
